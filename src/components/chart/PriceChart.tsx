@@ -586,22 +586,25 @@ export function PriceChart({ symbol, timeframe }: Props) {
     let last20: number | undefined;
     let last50: number | undefined;
     let last200: number | undefined;
+    const show20 = indicators.ema20;
+    const show50 = indicators.ema50;
+    const show200 = indicators.ema200;
 
-    if (ema20Ref.current) {
+    if (show20 && ema20Ref.current) {
       const data = ema(c, cfg.ema20);
       const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
       if (live && mapped.length > 0) ema20Ref.current.update(mapped[mapped.length - 1]);
       else ema20Ref.current.setData(mapped);
       last20 = mapped.at(-1)?.value;
     }
-    if (ema50Ref.current) {
+    if (show50 && ema50Ref.current) {
       const data = ema(c, cfg.ema50);
       const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
       if (live && mapped.length > 0) ema50Ref.current.update(mapped[mapped.length - 1]);
       else ema50Ref.current.setData(mapped);
       last50 = mapped.at(-1)?.value;
     }
-    if (ema200Ref.current) {
+    if (show200 && ema200Ref.current) {
       const data = ema(c, cfg.ema200);
       const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
       if (live && mapped.length > 0) ema200Ref.current.update(mapped[mapped.length - 1]);
@@ -621,6 +624,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
     const c = candlesRef.current;
     if (c.length === 0) return;
     const visible = indicators.bollinger && !hidden.bollinger;
+    if (!visible) {
+      bollingerUpperRef.current?.setData([]);
+      bollingerMiddleRef.current?.setData([]);
+      bollingerLowerRef.current?.setData([]);
+      return;
+    }
     const data = bollinger(c, 20, 2);
     const upperPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.upper }));
     const middlePoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.middle }));
@@ -662,7 +671,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
   function updateRSI(live = false) {
     const c = candlesRef.current;
-    if (c.length === 0 || !rsiRef.current) return;
+    if (c.length === 0 || !rsiRef.current || !indicators.rsi) return;
     const cfg = configRef.current;
     const data = rsi(c, cfg.rsi).map((p) => ({
       time: p.time as UTCTimestamp,
@@ -691,7 +700,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
   function updateMACD(live = false) {
     const c = candlesRef.current;
-    if (c.length === 0 || !macdRef.current) return;
+    if (c.length === 0 || !macdRef.current || !indicators.macd) return;
     const cfg = configRef.current;
     const m = macd(c, cfg.macdFast, cfg.macdSlow, cfg.macdSignal);
     const macdPoints = m.map((p) => ({ time: p.time as UTCTimestamp, value: p.macd }));
@@ -727,7 +736,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     async function load() {
       try {
-        const klines = await fetchKlines(symbol, timeframe, 1000);
+        const klines = await fetchKlines(symbol, timeframe, 300);
         if (cancelled) return;
         candlesRef.current = klines;
         if (candleSeriesRef.current) {
@@ -750,10 +759,10 @@ export function PriceChart({ symbol, timeframe }: Props) {
             })),
           );
         }
-        updateEMAs();
-        updateBollinger();
-        updateRSI();
-        updateMACD();
+        if (indicators.ema20 || indicators.ema50 || indicators.ema200) updateEMAs();
+        if (indicators.bollinger) updateBollinger();
+        if (indicators.rsi) updateRSI();
+        if (indicators.macd) updateMACD();
         chartRef.current?.timeScale().fitContent();
         requestAnimationFrame(() => recomputePaneOffsets());
 
@@ -796,10 +805,10 @@ export function PriceChart({ symbol, timeframe }: Props) {
                 color: k.close >= k.open ? `${TV_COLORS.green}66` : `${TV_COLORS.red}66`,
               });
             }
-            updateEMAs(true);
-            updateBollinger(true);
-            updateRSI(true);
-            updateMACD(true);
+            if (indicators.ema20 || indicators.ema50 || indicators.ema200) updateEMAs(true);
+            if (indicators.bollinger) updateBollinger(true);
+            if (indicators.rsi) updateRSI(true);
+            if (indicators.macd) updateMACD(true);
             const prev = arr[arr.length - 2] ?? lastCandle;
             setLastPrice({
               value: k.close,

@@ -97,6 +97,26 @@ export const DEFAULT_WATCHLIST = [
   "MATICUSDT",
 ];
 
+const DEFAULT_INDICATORS: Record<IndicatorKey, boolean> = {
+  ema20: false,
+  ema50: false,
+  ema200: false,
+  bollinger: false,
+  rsi: false,
+  macd: false,
+  volume: true,
+};
+
+const DEFAULT_HIDDEN: Record<IndicatorKey, boolean> = {
+  ema20: false,
+  ema50: false,
+  ema200: false,
+  bollinger: false,
+  rsi: false,
+  macd: false,
+  volume: false,
+};
+
 interface ChartState {
   symbol: string;
   timeframe: Timeframe;
@@ -140,24 +160,8 @@ export const useChartStore = create<ChartState>()(
     (set) => ({
       symbol: "BTCUSDT",
       timeframe: "15m" as Timeframe,
-      indicators: {
-        ema20: true,
-        ema50: true,
-        ema200: false,
-        bollinger: true,
-        rsi: true,
-        macd: false,
-        volume: true,
-      },
-      hidden: {
-        ema20: false,
-        ema50: false,
-        ema200: false,
-        bollinger: false,
-        rsi: false,
-        macd: false,
-        volume: false,
-      },
+      indicators: { ...DEFAULT_INDICATORS },
+      hidden: { ...DEFAULT_HIDDEN },
       config: { ...DEFAULT_CONFIG },
       watchlist: DEFAULT_WATCHLIST,
       tool: "cursor",
@@ -244,6 +248,23 @@ export const useChartStore = create<ChartState>()(
     }),
     {
       name: "tv-gratis-chart-state",
+      version: 2,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<ChartState> | null;
+        return {
+        symbol: typeof state?.symbol === "string" ? state.symbol : "BTCUSDT",
+        timeframe: (state?.timeframe ?? "15m") as Timeframe,
+        indicators: { ...DEFAULT_INDICATORS },
+        hidden: { ...DEFAULT_HIDDEN },
+        config: { ...DEFAULT_CONFIG },
+        watchlist: Array.isArray(state?.watchlist) ? state.watchlist : DEFAULT_WATCHLIST,
+        tool: "cursor",
+        priceLines: [],
+        drawings: [],
+        symbolDialogOpen: false,
+        settingsTarget: null,
+      };
+      },
       partialize: (s) => ({
         symbol: s.symbol,
         timeframe: s.timeframe,
