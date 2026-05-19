@@ -22,6 +22,7 @@ import {
   type IndicatorKey,
 } from "@/lib/store/chart-store";
 import { formatPrice, formatVolume } from "@/lib/format";
+import { DrawingLayer } from "./DrawingLayer";
 import { IndicatorPill } from "./IndicatorPill";
 import { MeasureOverlay } from "./MeasureOverlay";
 
@@ -571,7 +572,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.style.cursor =
-        tool === "hline" || tool === "measure" ? "crosshair" : "";
+        tool === "cursor" ? "" : "crosshair";
     }
     if (tool !== "measure" && measureRef.current.phase !== "idle") {
       requestAnimationFrame(() => setMeasure(INITIAL_MEASURE));
@@ -880,6 +881,15 @@ export function PriceChart({ symbol, timeframe }: Props) {
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      <DrawingLayer
+        tool={tool}
+        symbol={symbol}
+        renderTick={renderTick}
+        chartRef={chartRef}
+        candleSeriesRef={candleSeriesRef}
+        candlesRef={candlesRef}
+        mainPaneHeight={paneOffsets[0]?.height ?? 0}
+      />
       {measureRender}
 
       {/* Top-left of main pane: symbol info + OHLC + Volume pill + EMA pills */}

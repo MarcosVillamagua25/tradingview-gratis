@@ -13,7 +13,40 @@ export type IndicatorKey =
   | "macd"
   | "volume";
 
-export type DrawingTool = "cursor" | "hline" | "measure" | "eraser";
+export type DrawingTool =
+  | "cursor"
+  | "hline"
+  | "measure"
+  | "eraser"
+  | "trendline"
+  | "fibonacci"
+  | "brush"
+  | "position-long"
+  | "position-short"
+  | "rectangle";
+
+export type DrawingShapeKind =
+  | "trendline"
+  | "fibonacci"
+  | "brush"
+  | "position-long"
+  | "position-short"
+  | "rectangle";
+
+export interface DrawingPoint {
+  time: number;
+  price: number;
+}
+
+export interface DrawingShape {
+  id: string;
+  symbol: string;
+  kind: DrawingShapeKind;
+  points: DrawingPoint[];
+  color: string;
+  fill?: string;
+  width?: number;
+}
 
 export interface PriceLine {
   id: string;
@@ -78,6 +111,7 @@ interface ChartState {
   // Ephemeral UI state (not persisted)
   tool: DrawingTool;
   priceLines: PriceLine[];
+  drawings: DrawingShape[];
   symbolDialogOpen: boolean;
   /** Which indicator's settings dialog is open (null = closed) */
   settingsTarget: IndicatorKey | null;
@@ -94,6 +128,9 @@ interface ChartState {
   setTool: (t: DrawingTool) => void;
   addPriceLine: (price: number, symbol: string) => void;
   clearPriceLines: (symbol?: string) => void;
+  addDrawing: (shape: Omit<DrawingShape, "id">) => void;
+  removeDrawing: (id: string) => void;
+  clearDrawings: (symbol?: string) => void;
   setSymbolDialogOpen: (v: boolean) => void;
   setSettingsTarget: (k: IndicatorKey | null) => void;
 }
@@ -125,6 +162,7 @@ export const useChartStore = create<ChartState>()(
       watchlist: DEFAULT_WATCHLIST,
       tool: "cursor",
       priceLines: [],
+      drawings: [],
       symbolDialogOpen: false,
       settingsTarget: null,
 
@@ -178,6 +216,29 @@ export const useChartStore = create<ChartState>()(
             ? state.priceLines.filter((p) => p.symbol !== symbol)
             : [],
         })),
+      addDrawing: (shape) =>
+        set((state) => ({
+          drawings: [
+            ...state.drawings,
+            {
+              ...shape,
+              id:
+                typeof crypto !== "undefined" && "randomUUID" in crypto
+                  ? crypto.randomUUID()
+                  : `${Date.now()}-${Math.random()}`,
+            },
+          ],
+        })),
+      removeDrawing: (id) =>
+        set((state) => ({
+          drawings: state.drawings.filter((shape) => shape.id !== id),
+        })),
+      clearDrawings: (symbol) =>
+        set((state) => ({
+          drawings: symbol
+            ? state.drawings.filter((shape) => shape.symbol !== symbol)
+            : [],
+        })),
       setSymbolDialogOpen: (symbolDialogOpen) => set({ symbolDialogOpen }),
       setSettingsTarget: (settingsTarget) => set({ settingsTarget }),
     }),
@@ -190,6 +251,7 @@ export const useChartStore = create<ChartState>()(
         hidden: s.hidden,
         config: s.config,
         watchlist: s.watchlist,
+        drawings: s.drawings,
       }),
     },
   ),
