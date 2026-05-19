@@ -13,7 +13,6 @@ export function BottomPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    setT(null);
     const load = () => {
       fetchTicker24h(symbol)
         .then((x) => {

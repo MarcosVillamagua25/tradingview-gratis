@@ -8,6 +8,7 @@ export type IndicatorKey =
   | "ema20"
   | "ema50"
   | "ema200"
+  | "bollinger"
   | "rsi"
   | "macd"
   | "volume";
@@ -44,6 +45,7 @@ export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
   ema20: "#ffb74d",
   ema50: "#2962ff",
   ema200: "#ab47bc",
+  bollinger: "#64b5f6",
   rsi: "#ab47bc",
   macd: "#2962ff",
   volume: "#787b86",
@@ -105,6 +107,7 @@ export const useChartStore = create<ChartState>()(
         ema20: true,
         ema50: true,
         ema200: false,
+        bollinger: true,
         rsi: true,
         macd: false,
         volume: true,
@@ -113,6 +116,7 @@ export const useChartStore = create<ChartState>()(
         ema20: false,
         ema50: false,
         ema200: false,
+        bollinger: false,
         rsi: false,
         macd: false,
         volume: false,

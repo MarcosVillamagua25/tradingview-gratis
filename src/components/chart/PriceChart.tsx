@@ -14,7 +14,7 @@ import {
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/binance/rest";
 import { getBinanceWS } from "@/lib/binance/ws";
-import { ema, rsi, macd } from "@/lib/indicators";
+import { bollinger, ema, rsi, macd } from "@/lib/indicators";
 import type { Candle, Timeframe } from "@/lib/binance/types";
 import {
   INDICATOR_COLORS,
@@ -76,6 +76,9 @@ interface HoverInfo {
 }
 
 interface LastValues {
+  bollingerUpper?: number;
+  bollingerMiddle?: number;
+  bollingerLower?: number;
   ema20?: number;
   ema50?: number;
   ema200?: number;
@@ -96,6 +99,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const bollingerUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bollingerMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bollingerLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const ema20Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema50Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema200Ref = useRef<ISeriesApi<"Line"> | null>(null);
@@ -217,6 +223,25 @@ export function PriceChart({ symbol, timeframe }: Props) {
       lastValueVisible: false,
     });
 
+    bollingerUpperRef.current = chart.addSeries(LineSeries, {
+      color: "rgba(100, 181, 246, 0.45)",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    bollingerMiddleRef.current = chart.addSeries(LineSeries, {
+      color: "rgba(255, 255, 255, 0.28)",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    bollingerLowerRef.current = chart.addSeries(LineSeries, {
+      color: "rgba(100, 181, 246, 0.45)",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
     chartRef.current = chart;
 
     // Click handler — add horizontal price line when hline tool is active
@@ -309,6 +334,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
     });
     ro.observe(containerRef.current);
     recomputePaneOffsets();
+    const priceLinesMap = priceLinesMapRef.current;
 
     return () => {
       chart.timeScale().unsubscribeVisibleTimeRangeChange(tsRangeHandler);
@@ -318,7 +344,10 @@ export function PriceChart({ symbol, timeframe }: Props) {
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
-      priceLinesMapRef.current.clear();
+      bollingerUpperRef.current = null;
+      bollingerMiddleRef.current = null;
+      bollingerLowerRef.current = null;
+      priceLinesMap.clear();
       ema20Ref.current = null;
       ema50Ref.current = null;
       ema200Ref.current = null;
@@ -360,6 +389,16 @@ export function PriceChart({ symbol, timeframe }: Props) {
     }
     requestAnimationFrame(() => recomputePaneOffsets());
   }, [indicators.volume]);
+
+  // Bollinger Bands overlay on the main pane
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const visible = indicators.bollinger && !hidden.bollinger;
+    bollingerUpperRef.current?.applyOptions({ visible });
+    bollingerMiddleRef.current?.applyOptions({ visible });
+    bollingerLowerRef.current?.applyOptions({ visible });
+    updateBollinger();
+  }, [indicators.bollinger, hidden.bollinger, updateBollinger]);
 
   // RSI pane
   useEffect(() => {
@@ -415,7 +454,6 @@ export function PriceChart({ symbol, timeframe }: Props) {
       rsi70Ref.current = null;
     }
     requestAnimationFrame(() => recomputePaneOffsets());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicators.rsi]);
 
   // MACD pane
@@ -465,7 +503,6 @@ export function PriceChart({ symbol, timeframe }: Props) {
       macdHistRef.current = null;
     }
     requestAnimationFrame(() => recomputePaneOffsets());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicators.macd, indicators.rsi]);
 
   // Visibility — eye toggle (hidden state) + enabled state combined
@@ -474,6 +511,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
     ema20Ref.current?.applyOptions({ visible: v("ema20") });
     ema50Ref.current?.applyOptions({ visible: v("ema50") });
     ema200Ref.current?.applyOptions({ visible: v("ema200") });
+    if (bollingerUpperRef.current) bollingerUpperRef.current.applyOptions({ visible: v("bollinger") });
+    if (bollingerMiddleRef.current) bollingerMiddleRef.current.applyOptions({ visible: v("bollinger") });
+    if (bollingerLowerRef.current) bollingerLowerRef.current.applyOptions({ visible: v("bollinger") });
     if (rsiRef.current) rsiRef.current.applyOptions({ visible: v("rsi") });
     if (rsi30Ref.current) rsi30Ref.current.applyOptions({ visible: v("rsi") });
     if (rsi70Ref.current) rsi70Ref.current.applyOptions({ visible: v("rsi") });
@@ -533,10 +573,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
       containerRef.current.style.cursor =
         tool === "hline" || tool === "measure" ? "crosshair" : "";
     }
-    if (tool !== "measure") setMeasure(INITIAL_MEASURE);
+    if (tool !== "measure" && measureRef.current.phase !== "idle") {
+      requestAnimationFrame(() => setMeasure(INITIAL_MEASURE));
+    }
   }, [tool]);
 
-  function updateEMAs() {
+  function updateEMAs(live = false) {
     const c = candlesRef.current;
     if (c.length === 0) return;
     const cfg = configRef.current;
@@ -546,24 +588,24 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     if (ema20Ref.current) {
       const data = ema(c, cfg.ema20);
-      ema20Ref.current.setData(
-        data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })),
-      );
-      last20 = data.at(-1)?.value;
+      const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
+      if (live && mapped.length > 0) ema20Ref.current.update(mapped[mapped.length - 1]);
+      else ema20Ref.current.setData(mapped);
+      last20 = mapped.at(-1)?.value;
     }
     if (ema50Ref.current) {
       const data = ema(c, cfg.ema50);
-      ema50Ref.current.setData(
-        data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })),
-      );
-      last50 = data.at(-1)?.value;
+      const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
+      if (live && mapped.length > 0) ema50Ref.current.update(mapped[mapped.length - 1]);
+      else ema50Ref.current.setData(mapped);
+      last50 = mapped.at(-1)?.value;
     }
     if (ema200Ref.current) {
       const data = ema(c, cfg.ema200);
-      ema200Ref.current.setData(
-        data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })),
-      );
-      last200 = data.at(-1)?.value;
+      const mapped = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
+      if (live && mapped.length > 0) ema200Ref.current.update(mapped[mapped.length - 1]);
+      else ema200Ref.current.setData(mapped);
+      last200 = mapped.at(-1)?.value;
     }
     const lastVol = c.at(-1)?.volume;
     setLastValues((prev) => ({
@@ -574,8 +616,50 @@ export function PriceChart({ symbol, timeframe }: Props) {
       volume: lastVol,
     }));
   }
+  function updateBollinger(live = false) {
+    const c = candlesRef.current;
+    if (c.length === 0) return;
+    const visible = indicators.bollinger && !hidden.bollinger;
+    const data = bollinger(c, 20, 2);
+    const upperPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.upper }));
+    const middlePoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.middle }));
+    const lowerPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.lower }));
 
-  function updateRSI() {
+    if (bollingerUpperRef.current) {
+      if (visible) {
+        if (live && upperPoints.length > 0) bollingerUpperRef.current.update(upperPoints[upperPoints.length - 1]);
+        else bollingerUpperRef.current.setData(upperPoints);
+      } else {
+        bollingerUpperRef.current.setData([]);
+      }
+    }
+    if (bollingerMiddleRef.current) {
+      if (visible) {
+        if (live && middlePoints.length > 0) bollingerMiddleRef.current.update(middlePoints[middlePoints.length - 1]);
+        else bollingerMiddleRef.current.setData(middlePoints);
+      } else {
+        bollingerMiddleRef.current.setData([]);
+      }
+    }
+    if (bollingerLowerRef.current) {
+      if (visible) {
+        if (live && lowerPoints.length > 0) bollingerLowerRef.current.update(lowerPoints[lowerPoints.length - 1]);
+        else bollingerLowerRef.current.setData(lowerPoints);
+      } else {
+        bollingerLowerRef.current.setData([]);
+      }
+    }
+
+    const last = data.at(-1);
+    setLastValues((prev) => ({
+      ...prev,
+      bollingerUpper: last?.upper,
+      bollingerMiddle: last?.middle,
+      bollingerLower: last?.lower,
+    }));
+  }
+
+  function updateRSI(live = false) {
     const c = candlesRef.current;
     if (c.length === 0 || !rsiRef.current) return;
     const cfg = configRef.current;
@@ -583,38 +667,49 @@ export function PriceChart({ symbol, timeframe }: Props) {
       time: p.time as UTCTimestamp,
       value: p.value,
     }));
-    rsiRef.current.setData(data);
-    if (rsi30Ref.current && data.length > 0)
-      rsi30Ref.current.setData([
+    if (live && data.length > 0) rsiRef.current.update(data[data.length - 1]);
+    else rsiRef.current.setData(data);
+    if (rsi30Ref.current && data.length > 0) {
+      const level30 = [
         { time: data[0].time, value: 30 },
         { time: data[data.length - 1].time, value: 30 },
-      ]);
-    if (rsi70Ref.current && data.length > 0)
-      rsi70Ref.current.setData([
+      ];
+      if (live) rsi30Ref.current.update(level30[level30.length - 1]);
+      else rsi30Ref.current.setData(level30);
+    }
+    if (rsi70Ref.current && data.length > 0) {
+      const level70 = [
         { time: data[0].time, value: 70 },
         { time: data[data.length - 1].time, value: 70 },
-      ]);
+      ];
+      if (live) rsi70Ref.current.update(level70[level70.length - 1]);
+      else rsi70Ref.current.setData(level70);
+    }
     setLastValues((prev) => ({ ...prev, rsi: data.at(-1)?.value }));
   }
 
-  function updateMACD() {
+  function updateMACD(live = false) {
     const c = candlesRef.current;
     if (c.length === 0 || !macdRef.current) return;
     const cfg = configRef.current;
     const m = macd(c, cfg.macdFast, cfg.macdSlow, cfg.macdSignal);
-    macdRef.current.setData(
-      m.map((p) => ({ time: p.time as UTCTimestamp, value: p.macd })),
-    );
-    macdSignalRef.current?.setData(
-      m.map((p) => ({ time: p.time as UTCTimestamp, value: p.signal })),
-    );
-    macdHistRef.current?.setData(
-      m.map((p) => ({
-        time: p.time as UTCTimestamp,
-        value: p.histogram,
-        color: p.histogram >= 0 ? `${TV_COLORS.green}80` : `${TV_COLORS.red}80`,
-      })),
-    );
+    const macdPoints = m.map((p) => ({ time: p.time as UTCTimestamp, value: p.macd }));
+    const signalPoints = m.map((p) => ({ time: p.time as UTCTimestamp, value: p.signal }));
+    const histPoints = m.map((p) => ({
+      time: p.time as UTCTimestamp,
+      value: p.histogram,
+      color: p.histogram >= 0 ? `${TV_COLORS.green}80` : `${TV_COLORS.red}80`,
+    }));
+    if (live && macdPoints.length > 0) macdRef.current.update(macdPoints[macdPoints.length - 1]);
+    else macdRef.current.setData(macdPoints);
+    if (macdSignalRef.current) {
+      if (live && signalPoints.length > 0) macdSignalRef.current.update(signalPoints[signalPoints.length - 1]);
+      else macdSignalRef.current.setData(signalPoints);
+    }
+    if (macdHistRef.current) {
+      if (live && histPoints.length > 0) macdHistRef.current.update(histPoints[histPoints.length - 1]);
+      else macdHistRef.current.setData(histPoints);
+    }
     const last = m.at(-1);
     setLastValues((prev) => ({
       ...prev,
@@ -655,6 +750,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
           );
         }
         updateEMAs();
+        updateBollinger();
         updateRSI();
         updateMACD();
         chartRef.current?.timeScale().fitContent();
@@ -699,9 +795,10 @@ export function PriceChart({ symbol, timeframe }: Props) {
                 color: k.close >= k.open ? `${TV_COLORS.green}66` : `${TV_COLORS.red}66`,
               });
             }
-            updateEMAs();
-            updateRSI();
-            updateMACD();
+            updateEMAs(true);
+            updateBollinger(true);
+            updateRSI(true);
+            updateMACD(true);
             const prev = arr[arr.length - 2] ?? lastCandle;
             setLastPrice({
               value: k.close,
@@ -720,7 +817,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       cancelled = true;
       if (unsub) unsub();
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, updateBollinger]);
 
   const greenOrRed = (n: number) =>
     n >= 0 ? "text-tv-green" : "text-tv-red";
@@ -874,6 +971,17 @@ export function PriceChart({ symbol, timeframe }: Props) {
               onToggleHide={() => toggleHidden("ema200")}
               onSettings={() => setSettingsTarget("ema200")}
               onRemove={() => removeIndicator("ema200")}
+            />
+          )}
+          {indicators.bollinger && (
+            <IndicatorPill
+              name="BB 20,2"
+              value={lastValues.bollingerMiddle !== undefined ? formatPrice(lastValues.bollingerMiddle) : undefined}
+              color={INDICATOR_COLORS.bollinger}
+              hidden={hidden.bollinger}
+              onToggleHide={() => toggleHidden("bollinger")}
+              onSettings={() => setSettingsTarget("bollinger")}
+              onRemove={() => removeIndicator("bollinger")}
             />
           )}
           {indicators.volume && (

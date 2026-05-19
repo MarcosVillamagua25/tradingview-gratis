@@ -12,6 +12,13 @@ export interface MACDPoint {
   histogram: number;
 }
 
+export interface BollingerPoint {
+  time: number;
+  upper: number;
+  middle: number;
+  lower: number;
+}
+
 /**
  * Simple Moving Average
  */
@@ -113,5 +120,46 @@ export function macd(
     out.push({ time: p.time, macd: p.value, signal: s, histogram: p.value - s });
   }
   void slowStartTime;
+  return out;
+}
+
+/**
+ * Bollinger Bands — middle = SMA, upper/lower = middle +/- stdDev * sigma.
+ */
+export function bollinger(
+  candles: Candle[],
+  period = 20,
+  stdDev = 2,
+): BollingerPoint[] {
+  if (candles.length < period) return [];
+
+  const out: BollingerPoint[] = [];
+  let sum = 0;
+  let sumSquares = 0;
+
+  for (let i = 0; i < candles.length; i++) {
+    const close = candles[i].close;
+    sum += close;
+    sumSquares += close * close;
+
+    if (i >= period) {
+      const outgoing = candles[i - period].close;
+      sum -= outgoing;
+      sumSquares -= outgoing * outgoing;
+    }
+
+    if (i >= period - 1) {
+      const middle = sum / period;
+      const variance = Math.max(0, sumSquares / period - middle * middle);
+      const deviation = Math.sqrt(variance) * stdDev;
+      out.push({
+        time: candles[i].time,
+        middle,
+        upper: middle + deviation,
+        lower: middle - deviation,
+      });
+    }
+  }
+
   return out;
 }

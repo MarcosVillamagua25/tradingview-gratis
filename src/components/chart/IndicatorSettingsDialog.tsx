@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ const TITLES: Record<IndicatorKey, string> = {
   ema20: "EMA — Slot 1",
   ema50: "EMA — Slot 2",
   ema200: "EMA — Slot 3",
+  bollinger: "Bandas de Bollinger",
   rsi: "RSI",
   macd: "MACD",
   volume: "Volumen",
@@ -47,6 +48,7 @@ export function IndicatorSettingsDialog() {
         </DialogHeader>
         {target && (
           <SettingsForm
+            key={target}
             target={target}
             config={config}
             onSave={(patch) => {
@@ -83,22 +85,11 @@ function SettingsForm({ target, config, onSave, onReset }: FormProps) {
     macdSignal: config.macdSignal,
   });
 
-  useEffect(() => {
-    setDraft({
-      ema20: config.ema20,
-      ema50: config.ema50,
-      ema200: config.ema200,
-      rsi: config.rsi,
-      macdFast: config.macdFast,
-      macdSlow: config.macdSlow,
-      macdSignal: config.macdSignal,
-    });
-  }, [config, target]);
-
   function save() {
     if (target === "ema20") onSave({ ema20: clamp(draft.ema20, 2, 500) });
     else if (target === "ema50") onSave({ ema50: clamp(draft.ema50, 2, 500) });
     else if (target === "ema200") onSave({ ema200: clamp(draft.ema200, 2, 500) });
+    else if (target === "bollinger") onSave({});
     else if (target === "rsi") onSave({ rsi: clamp(draft.rsi, 2, 100) });
     else if (target === "macd")
       onSave({
@@ -117,6 +108,11 @@ function SettingsForm({ target, config, onSave, onReset }: FormProps) {
           value={draft[target]}
           onChange={(n) => setDraft((d) => ({ ...d, [target]: n }))}
         />
+      )}
+      {target === "bollinger" && (
+        <p className="text-xs text-tv-text-muted">
+          Configuración fija: período 20 y desviación estándar 2.
+        </p>
       )}
       {target === "rsi" && (
         <Field
