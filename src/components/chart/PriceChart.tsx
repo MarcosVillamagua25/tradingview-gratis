@@ -159,12 +159,14 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const squeezeHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const squeezeZeroRef = useRef<ISeriesApi<"Line"> | null>(null);
   const adxPaneIndexRef = useRef<number | null>(null);
+  const squeezePaneIndexRef = useRef<number | null>(null);
   const candlesRef = useRef<Candle[]>([]);
   const priceLinesMapRef = useRef<Map<string, IPriceLine>>(new Map());
 
   const indicators = useChartStore((s) => s.indicators);
   const hidden = useChartStore((s) => s.hidden);
   const config = useChartStore((s) => s.config);
+  const indicatorStyles = useChartStore((s) => s.indicatorStyles);
   const tool = useChartStore((s) => s.tool);
   const candleTheme = useChartStore((s) => s.candleTheme);
   const priceLines = useChartStore((s) => s.priceLines);
@@ -180,8 +182,13 @@ export function PriceChart({ symbol, timeframe }: Props) {
   addPriceLineRef.current = addPriceLine;
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
+  const setSettingsTargetRef = useRef(setSettingsTarget);
+  setSettingsTargetRef.current = setSettingsTarget;
   const configRef = useRef(config);
   configRef.current = config;
+
+  const styleRef = useRef(indicatorStyles);
+  styleRef.current = indicatorStyles;
 
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [lastPrice, setLastPrice] = useState<{ value: number; pct: number } | null>(null);
@@ -191,6 +198,34 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const [renderTick, setRenderTick] = useState(0);
   const measureRef = useRef(measure);
   measureRef.current = measure;
+
+  function getStyle(key: IndicatorKey, fallbackColor: string, fallbackWidth: number) {
+    const s = styleRef.current[key];
+    const widthRaw = s?.lineWidth ?? fallbackWidth;
+    const width = Math.max(1, Math.min(4, Math.round(widthRaw))) as 1 | 2 | 3 | 4;
+    return {
+      color: s?.color ?? fallbackColor,
+      lineWidth: width,
+    };
+  }
+
+  function keyFromSeries(series: unknown): IndicatorKey | null {
+    const s = series as ISeriesApi<"Candlestick" | "Line" | "Histogram"> | null | undefined;
+    if (!s) return null;
+    if (s === ema20Ref.current) return "ema20";
+    if (s === ema50Ref.current) return "ema50";
+    if (s === ema200Ref.current) return "ema200";
+    for (const item of EMA_SET) {
+      if (s === emaSetRefs.current[item.key]) return "emaSet";
+    }
+    if (s === bollingerUpperRef.current || s === bollingerMiddleRef.current || s === bollingerLowerRef.current) return "bollinger";
+    if (s === rsiRef.current || s === rsi30Ref.current || s === rsi70Ref.current) return "rsi";
+    if (s === macdRef.current || s === macdSignalRef.current || s === macdHistRef.current) return "macd";
+    if (s === adxRef.current || s === plusDIRef.current || s === minusDIRef.current) return "adx";
+    if (s === squeezeHistRef.current || s === squeezeZeroRef.current) return "squeeze";
+    if (s === volumeSeriesRef.current) return "volume";
+    return null;
+  }
 
   // Helper — compute pane top offsets from chart layout
   function recomputePaneOffsets() {
@@ -251,48 +286,48 @@ export function PriceChart({ symbol, timeframe }: Props) {
     });
 
     ema20Ref.current = chart.addSeries(LineSeries, {
-      color: INDICATOR_COLORS.ema20,
-      lineWidth: 1,
+      ...getStyle("ema20", INDICATOR_COLORS.ema20, 1),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
     ema50Ref.current = chart.addSeries(LineSeries, {
-      color: INDICATOR_COLORS.ema50,
-      lineWidth: 1,
+      ...getStyle("ema50", INDICATOR_COLORS.ema50, 1),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
     ema200Ref.current = chart.addSeries(LineSeries, {
-      color: INDICATOR_COLORS.ema200,
-      lineWidth: 2,
+      ...getStyle("ema200", INDICATOR_COLORS.ema200, 2),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
 
     EMA_SET.forEach((item) => {
       emaSetRefs.current[item.key] = chart.addSeries(LineSeries, {
-        color: item.color,
-        lineWidth: 1,
+        ...getStyle("emaSet", item.color, 1),
+        crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       });
     });
 
     bollingerUpperRef.current = chart.addSeries(LineSeries, {
-      color: "rgba(100, 181, 246, 0.45)",
-      lineWidth: 1,
+      ...getStyle("bollinger", "rgba(100, 181, 246, 0.45)", 1),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
     bollingerMiddleRef.current = chart.addSeries(LineSeries, {
-      color: "rgba(255, 255, 255, 0.28)",
-      lineWidth: 1,
+      ...getStyle("bollinger", "rgba(255, 255, 255, 0.28)", 1),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
     bollingerLowerRef.current = chart.addSeries(LineSeries, {
-      color: "rgba(100, 181, 246, 0.45)",
-      lineWidth: 1,
+      ...getStyle("bollinger", "rgba(100, 181, 246, 0.45)", 1),
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
     });
@@ -301,6 +336,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     // Click handler — add horizontal price line when hline tool is active
     chart.subscribeClick((param) => {
+      const hoveredKey = keyFromSeries(param.hoveredSeries);
+      if (hoveredKey) {
+        setSettingsTargetRef.current(hoveredKey);
+        return;
+      }
+
       if (!param.point || !candleSeriesRef.current) return;
       const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
       if (price === null || !isFinite(price)) return;
@@ -469,8 +510,8 @@ export function PriceChart({ symbol, timeframe }: Props) {
       const r = chartRef.current.addSeries(
         LineSeries,
         {
-          color: INDICATOR_COLORS.rsi,
-          lineWidth: 1,
+          ...getStyle("rsi", INDICATOR_COLORS.rsi, 1),
+          crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,
         },
@@ -482,6 +523,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
           color: TV_COLORS.textMuted,
           lineWidth: 1,
           lineStyle: 2,
+          crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,
         },
@@ -493,6 +535,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
           color: TV_COLORS.textMuted,
           lineWidth: 1,
           lineStyle: 2,
+          crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,
         },
@@ -525,8 +568,8 @@ export function PriceChart({ symbol, timeframe }: Props) {
       const m = chartRef.current.addSeries(
         LineSeries,
         {
-          color: INDICATOR_COLORS.macd,
-          lineWidth: 1,
+          ...getStyle("macd", INDICATOR_COLORS.macd, 1),
+          crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,
         },
@@ -537,6 +580,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
         {
           color: TV_COLORS.yellow,
           lineWidth: 1,
+          crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,
         },
@@ -606,6 +650,14 @@ export function PriceChart({ symbol, timeframe }: Props) {
   }, [config.macdFast, config.macdSlow, config.macdSignal]);
 
   useEffect(() => {
+    if (indicators.adx) updateADX();
+  }, [config.adxPeriod, indicators.adx]);
+
+  useEffect(() => {
+    if (indicators.squeeze) updateSqueeze();
+  }, [config.squeezeBBLength, config.squeezeKeltnerLength, indicators.squeeze]);
+
+  useEffect(() => {
     if (!chartRef.current) return;
     if (indicators.emaSet) {
       updateEmaSet();
@@ -620,43 +672,32 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
   useEffect(() => {
     if (!chartRef.current) return;
-    const paneIndex = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
-    const needPane = indicators.adx || indicators.squeeze;
+    const basePane = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
+    const paneIndex = basePane;
 
-    if (needPane && (!adxRef.current || adxPaneIndexRef.current !== paneIndex)) {
-      if (adxRef.current && chartRef.current) {
+    if (indicators.adx && (!adxRef.current || adxPaneIndexRef.current !== paneIndex)) {
+      if (adxRef.current) {
         chartRef.current.removeSeries(adxRef.current);
         if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
         if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
-        if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
-        if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
       }
       adxRef.current = chartRef.current.addSeries(LineSeries, {
-        color: INDICATOR_COLORS.adx,
-        lineWidth: 1,
+        ...getStyle("adx", INDICATOR_COLORS.adx, 1),
+        crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
       plusDIRef.current = chartRef.current.addSeries(LineSeries, {
         color: TV_COLORS.blue,
         lineWidth: 1,
+        crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
       minusDIRef.current = chartRef.current.addSeries(LineSeries, {
         color: TV_COLORS.textMuted,
         lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      }, paneIndex);
-      squeezeHistRef.current = chartRef.current.addSeries(HistogramSeries, {
-        priceLineVisible: false,
-        lastValueVisible: false,
-      }, paneIndex);
-      squeezeZeroRef.current = chartRef.current.addSeries(LineSeries, {
-        color: TV_COLORS.textMuted,
-        lineWidth: 1,
-        lineStyle: 2,
+        crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
@@ -665,33 +706,60 @@ export function PriceChart({ symbol, timeframe }: Props) {
         chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
         chartRef.current.panes()[0]?.setStretchFactor(3);
       } catch {}
+      updateADX();
     }
 
-    if (indicators.adx) updateADX();
-    else if (adxRef.current) adxRef.current.setData([]);
-    if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: indicators.adx });
-    if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: indicators.adx });
-
-    if (indicators.squeeze) updateSqueeze();
-    else if (squeezeHistRef.current) squeezeHistRef.current.setData([]);
-    if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: indicators.squeeze });
-
-    if (!needPane && adxRef.current && chartRef.current) {
+    if (!indicators.adx && adxRef.current) {
       chartRef.current.removeSeries(adxRef.current);
       if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
       if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
-      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
-      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
       adxRef.current = null;
       plusDIRef.current = null;
       minusDIRef.current = null;
-      squeezeHistRef.current = null;
-      squeezeZeroRef.current = null;
       adxPaneIndexRef.current = null;
     }
 
     requestAnimationFrame(() => recomputePaneOffsets());
-  }, [indicators.adx, indicators.squeeze, indicators.rsi, indicators.macd]);
+  }, [indicators.adx, indicators.rsi, indicators.macd]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const basePane = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
+    const paneIndex = basePane + (indicators.adx ? 1 : 0);
+
+    if (indicators.squeeze && (!squeezeHistRef.current || squeezePaneIndexRef.current !== paneIndex)) {
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
+      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+      squeezeHistRef.current = chartRef.current.addSeries(HistogramSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      squeezeZeroRef.current = chartRef.current.addSeries(LineSeries, {
+        color: TV_COLORS.textMuted,
+        lineWidth: 1,
+        lineStyle: 2,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      squeezePaneIndexRef.current = paneIndex;
+      try {
+        chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
+        chartRef.current.panes()[0]?.setStretchFactor(3);
+      } catch {}
+      updateSqueeze();
+    }
+
+    if (!indicators.squeeze && squeezeHistRef.current) {
+      chartRef.current.removeSeries(squeezeHistRef.current);
+      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+      squeezeHistRef.current = null;
+      squeezeZeroRef.current = null;
+      squeezePaneIndexRef.current = null;
+    }
+
+    requestAnimationFrame(() => recomputePaneOffsets());
+  }, [indicators.squeeze, indicators.adx, indicators.rsi, indicators.macd]);
 
   // Sync price lines from store to the candle series
   useEffect(() => {
@@ -742,6 +810,23 @@ export function PriceChart({ symbol, timeframe }: Props) {
       borderDownColor: CANDLE_THEMES[candleTheme].down,
     });
   }, [candleTheme]);
+
+  useEffect(() => {
+    const apply = (key: IndicatorKey, series: ISeriesApi<"Line"> | null, fallbackColor: string, fallbackWidth: number) => {
+      if (!series) return;
+      series.applyOptions(getStyle(key, fallbackColor, fallbackWidth));
+    };
+    apply("ema20", ema20Ref.current, INDICATOR_COLORS.ema20, 1);
+    apply("ema50", ema50Ref.current, INDICATOR_COLORS.ema50, 1);
+    apply("ema200", ema200Ref.current, INDICATOR_COLORS.ema200, 2);
+    for (const item of EMA_SET) apply("emaSet", emaSetRefs.current[item.key] ?? null, item.color, 1);
+    apply("bollinger", bollingerUpperRef.current, "rgba(100, 181, 246, 0.45)", 1);
+    apply("bollinger", bollingerMiddleRef.current, "rgba(255, 255, 255, 0.28)", 1);
+    apply("bollinger", bollingerLowerRef.current, "rgba(100, 181, 246, 0.45)", 1);
+    apply("rsi", rsiRef.current, INDICATOR_COLORS.rsi, 1);
+    apply("macd", macdRef.current, INDICATOR_COLORS.macd, 1);
+    apply("adx", adxRef.current, INDICATOR_COLORS.adx, 1);
+  }, [indicatorStyles]);
 
   // Update volume bar colors to match the selected candle theme
   useEffect(() => {
@@ -1086,7 +1171,8 @@ export function PriceChart({ symbol, timeframe }: Props) {
   // Determine which pane each indicator lives in (based on current layout)
   const rsiPaneIdx = 1;
   const macdPaneIdx = indicators.rsi ? 2 : 1;
-  const lowerPaneIdx = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
+  const adxPaneIdx = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
+  const squeezePaneIdx = adxPaneIdx + (indicators.adx ? 1 : 0);
 
   let measureRender: React.ReactNode = null;
   if (
@@ -1304,37 +1390,41 @@ export function PriceChart({ symbol, timeframe }: Props) {
         </div>
       )}
 
-      {(indicators.adx || indicators.squeeze) && paneOffsets[lowerPaneIdx] && (
+      {indicators.adx && paneOffsets[adxPaneIdx] && (
         <div
-          style={{ top: paneOffsets[lowerPaneIdx].top + 6, left: 12 }}
-          className="pointer-events-none absolute z-10 flex flex-col gap-1"
+          style={{ top: paneOffsets[adxPaneIdx].top + 6, left: 12 }}
+          className="pointer-events-none absolute z-10"
         >
-          {indicators.adx && (
-            <IndicatorPill
-              name="ADX / DI"
-              value={
-                lastValues.adx !== undefined
-                  ? `${lastValues.adx.toFixed(2)} / ${(lastValues.plusDI ?? 0).toFixed(2)} / ${(lastValues.minusDI ?? 0).toFixed(2)}`
-                  : undefined
-              }
-              color={INDICATOR_COLORS.adx}
-              hidden={hidden.adx}
-              onToggleHide={() => toggleHidden("adx")}
-              onSettings={() => setSettingsTarget("adx")}
-              onRemove={() => removeIndicator("adx")}
-            />
-          )}
-          {indicators.squeeze && (
-            <IndicatorPill
-              name="Squeeze"
-              value={lastValues.squeeze !== undefined ? lastValues.squeeze.toFixed(2) : undefined}
-              color={INDICATOR_COLORS.squeeze}
-              hidden={hidden.squeeze}
-              onToggleHide={() => toggleHidden("squeeze")}
-              onSettings={() => setSettingsTarget("squeeze")}
-              onRemove={() => removeIndicator("squeeze")}
-            />
-          )}
+          <IndicatorPill
+            name="ADX / DI"
+            value={
+              lastValues.adx !== undefined
+                ? `${lastValues.adx.toFixed(2)} / ${(lastValues.plusDI ?? 0).toFixed(2)} / ${(lastValues.minusDI ?? 0).toFixed(2)}`
+                : undefined
+            }
+            color={INDICATOR_COLORS.adx}
+            hidden={hidden.adx}
+            onToggleHide={() => toggleHidden("adx")}
+            onSettings={() => setSettingsTarget("adx")}
+            onRemove={() => removeIndicator("adx")}
+          />
+        </div>
+      )}
+
+      {indicators.squeeze && paneOffsets[squeezePaneIdx] && (
+        <div
+          style={{ top: paneOffsets[squeezePaneIdx].top + 6, left: 12 }}
+          className="pointer-events-none absolute z-10"
+        >
+          <IndicatorPill
+            name="Squeeze"
+            value={lastValues.squeeze !== undefined ? lastValues.squeeze.toFixed(2) : undefined}
+            color={INDICATOR_COLORS.squeeze}
+            hidden={hidden.squeeze}
+            onToggleHide={() => toggleHidden("squeeze")}
+            onSettings={() => setSettingsTarget("squeeze")}
+            onRemove={() => removeIndicator("squeeze")}
+          />
         </div>
       )}
     </div>

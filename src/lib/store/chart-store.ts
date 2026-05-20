@@ -74,6 +74,11 @@ export interface IndicatorConfig {
   squeezeKeltnerLength?: number;
 }
 
+export interface IndicatorStyle {
+  color?: string;
+  lineWidth?: number;
+}
+
 export const DEFAULT_CONFIG: IndicatorConfig = {
   ema20: 20,
   ema50: 50,
@@ -149,6 +154,8 @@ interface ChartState {
   hidden: Record<IndicatorKey, boolean>;
   /** Periods and parameters for each indicator */
   config: IndicatorConfig;
+  /** Visual styles per indicator */
+  indicatorStyles: Partial<Record<IndicatorKey, IndicatorStyle>>;
   watchlist: string[];
 
   // Ephemeral UI state (not persisted)
@@ -168,6 +175,7 @@ interface ChartState {
   removeIndicator: (key: IndicatorKey) => void;
   toggleHidden: (key: IndicatorKey) => void;
   setConfig: (patch: Partial<IndicatorConfig>) => void;
+  setIndicatorStyle: (key: IndicatorKey, patch: IndicatorStyle) => void;
   addToWatchlist: (s: string) => void;
   removeFromWatchlist: (s: string) => void;
   setTool: (t: DrawingTool) => void;
@@ -191,6 +199,7 @@ export const useChartStore = create<ChartState>()(
       indicators: { ...DEFAULT_INDICATORS },
       hidden: { ...DEFAULT_HIDDEN },
       config: { ...DEFAULT_CONFIG },
+      indicatorStyles: {},
       watchlist: DEFAULT_WATCHLIST,
       tool: "cursor",
       priceLines: [],
@@ -219,6 +228,16 @@ export const useChartStore = create<ChartState>()(
         set((s) => ({ hidden: { ...s.hidden, [key]: !s.hidden[key] } })),
       setConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
+      setIndicatorStyle: (key, patch) =>
+        set((s) => ({
+          indicatorStyles: {
+            ...s.indicatorStyles,
+            [key]: {
+              ...(s.indicatorStyles[key] ?? {}),
+              ...patch,
+            },
+          },
+        })),
       addToWatchlist: (s) =>
         set((state) => ({
           watchlist: state.watchlist.includes(s)
@@ -303,6 +322,7 @@ export const useChartStore = create<ChartState>()(
           indicators: { ...DEFAULT_INDICATORS },
           hidden: { ...DEFAULT_HIDDEN },
           config: { ...DEFAULT_CONFIG },
+          indicatorStyles: {},
           watchlist: Array.isArray(state?.watchlist) ? state.watchlist : DEFAULT_WATCHLIST,
           tool: "cursor",
           priceLines: [],
@@ -319,6 +339,7 @@ export const useChartStore = create<ChartState>()(
         indicators: s.indicators,
         hidden: s.hidden,
         config: s.config,
+        indicatorStyles: s.indicatorStyles,
         watchlist: s.watchlist,
         drawings: s.drawings,
         candleTheme: s.candleTheme,
