@@ -14,6 +14,7 @@ import {
   DEFAULT_CONFIG,
   type IndicatorKey,
   type IndicatorStyle,
+  type MAConfig,
 } from "@/lib/store/chart-store";
 
 const TITLES: Record<IndicatorKey, string> = {
@@ -92,7 +93,7 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
     macdFast: config.macdFast,
     macdSlow: config.macdSlow,
     macdSignal: config.macdSignal,
-    emaSetPeriods: (config.emaSetPeriods || []).join(","),
+    maSet: (config.maSet ?? DEFAULT_CONFIG.maSet ?? []).map((slot) => ({ ...slot })),
     adxPeriod: config.adxPeriod ?? 14,
     squeezeBBLength: config.squeezeBBLength ?? 20,
     squeezeKeltnerLength: config.squeezeKeltnerLength ?? 20,
@@ -117,12 +118,12 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
         macdSignal: clamp(draft.macdSignal, 2, 100),
       }, stylePatch);
     else if (target === "emaSet") {
-      const arr = (draft.emaSetPeriods || "")
-        .split(/[,\s]+/) 
-        .map((s) => parseInt(s, 10))
-        .filter((n) => !isNaN(n) && n > 0)
-        .slice(0, 8);
-      onSave({ emaSetPeriods: arr }, stylePatch);
+      const sanitized = draft.maSet.slice(0, 7).map((slot, idx) => ({
+        enabled: !!slot.enabled,
+        period: clamp(slot.period, 2, 500),
+        color: slot.color || (DEFAULT_CONFIG.maSet?.[idx]?.color ?? "#f59e0b"),
+      }));
+      onSave({ maSet: sanitized }, stylePatch);
     } else if (target === "adx") {
       onSave({ adxPeriod: clamp(draft.adxPeriod, 2, 200) }, stylePatch);
     } else if (target === "squeeze") {
@@ -179,17 +180,21 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
       {(target === "emaSet" || target === "adx" || target === "squeeze") && (
         <>
           {target === "emaSet" && (
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
-                Períodos (csv)
-              </span>
-              <Input
-                value={draft.emaSetPeriods}
-                onChange={(e) => setDraft((d) => ({ ...d, emaSetPeriods: e.target.value }))}
-                className="bg-tv-bg"
-              />
-              <p className="text-xs text-tv-text-muted">Ej: 21,55,100,200</p>
-            </label>
+            <div className="flex flex-col gap-2">
+              {draft.maSet.slice(0, 7).map((slot, idx) => (
+                <MaRow
+                  key={idx}
+                  index={idx}
+                  slot={slot}
+                  onChange={(next) =>
+                    setDraft((d) => ({
+                      ...d,
+                      maSet: d.maSet.map((item, i) => (i === idx ? next : item)),
+                    }))
+                  }
+                />
+              ))}
+            </div>
           )}
           {target === "adx" && (
             <Field
@@ -215,6 +220,7 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
         </>
       )}
 
+      {target !== "emaSet" && (
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
@@ -233,6 +239,7 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
           onChange={(n) => setDraft((d) => ({ ...d, styleWidth: n }))}
         />
       </div>
+      )}
 
       <div className="mt-2 flex items-center justify-between">
         <Button
@@ -282,4 +289,44 @@ function Field({
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+function MaRow({
+  index,
+  slot,
+  onChange,
+}: {
+  index: number;
+  slot: MAConfig;
+  onChange: (next: MAConfig) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+      <label className="flex items-center gap-1 text-xs text-tv-text">
+        <input
+          type="checkbox"
+          checked={slot.enabled}
+          onChange={(e) => onChange({ ...slot, enabled: e.target.checked })}
+        />
+        MA {index + 1}
+      </label>
+      <Input
+        type="number"
+        min={2}
+        max={500}
+        value={slot.period}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          if (!isNaN(n)) onChange({ ...slot, period: n });
+        }}
+        className="h-8 bg-tv-bg"
+      />
+      <Input
+        type="color"
+        value={slot.color}
+        onChange={(e) => onChange({ ...slot, color: e.target.value })}
+        className="h-8 w-12 bg-tv-bg p-1"
+      />
+    </div>
+  );
 }

@@ -14,9 +14,10 @@ import {
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/binance/rest";
 import { getBinanceWS } from "@/lib/binance/ws";
-import { adx, bollinger, ema, rsi, macd, sma, squeezeMomentum } from "@/lib/indicators";
+import { adx, bollinger, ema, rsi, macd, squeezeMomentum } from "@/lib/indicators";
 import type { Candle, Timeframe } from "@/lib/binance/types";
 import {
+  DEFAULT_CONFIG,
   INDICATOR_COLORS,
   useChartStore,
   type IndicatorKey,
@@ -87,19 +88,7 @@ const CANDLE_THEMES = {
   },
 } as const;
 
-const EMA_SET = [
-  { key: "ema21", label: "EMA 21", period: 21, kind: "ema" as const, color: "#fdd835" },
-  { key: "ema55", label: "EMA 55", period: 55, kind: "ema" as const, color: "#84cc16" },
-  { key: "ema100", label: "EMA 100", period: 100, kind: "ema" as const, color: "#22d3ee" },
-  { key: "ema200a", label: "EMA 200", period: 200, kind: "ema" as const, color: "#a855f7" },
-  { key: "ema300", label: "EMA 300", period: 300, kind: "ema" as const, color: "#60a5fa" },
-  { key: "ema400", label: "EMA 400", period: 400, kind: "ema" as const, color: "#f472b6" },
-  { key: "ma11", label: "MA 11", period: 11, kind: "sma" as const, color: "#fb923c" },
-  { key: "ma23", label: "MA 23", period: 23, kind: "sma" as const, color: "#c084fc" },
-  { key: "ma25", label: "MA 25", period: 25, kind: "sma" as const, color: "#22c55e" },
-  { key: "ma39", label: "MA 39", period: 39, kind: "sma" as const, color: "#ef4444" },
-  { key: "ma200", label: "MA 200", period: 200, kind: "sma" as const, color: "#facc15" },
-] as const;
+const MA_SERIES_KEYS = ["ma1", "ma2", "ma3", "ma4", "ma5", "ma6", "ma7"] as const;
 
 interface HoverInfo {
   o: number;
@@ -215,8 +204,8 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (s === ema20Ref.current) return "ema20";
     if (s === ema50Ref.current) return "ema50";
     if (s === ema200Ref.current) return "ema200";
-    for (const item of EMA_SET) {
-      if (s === emaSetRefs.current[item.key]) return "emaSet";
+    for (const key of MA_SERIES_KEYS) {
+      if (s === emaSetRefs.current[key]) return "emaSet";
     }
     if (s === bollingerUpperRef.current || s === bollingerMiddleRef.current || s === bollingerLowerRef.current) return "bollinger";
     if (s === rsiRef.current || s === rsi30Ref.current || s === rsi70Ref.current) return "rsi";
@@ -274,6 +263,11 @@ export function PriceChart({ symbol, timeframe }: Props) {
         barSpacing: 8,
       },
       autoSize: true,
+      leftPriceScale: {
+        visible: true,
+        borderColor: TV_COLORS.border,
+        textColor: TV_COLORS.textMuted,
+      },
     });
 
     // PANE 0 — Candles + EMAs
@@ -304,9 +298,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
       lastValueVisible: false,
     });
 
-    EMA_SET.forEach((item) => {
-      emaSetRefs.current[item.key] = chart.addSeries(LineSeries, {
-        ...getStyle("emaSet", item.color, 1),
+    MA_SERIES_KEYS.forEach((key, idx) => {
+      emaSetRefs.current[key] = chart.addSeries(LineSeries, {
+        ...getStyle("emaSet", DEFAULT_CONFIG.maSet?.[idx]?.color ?? "#f59e0b", 1),
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -616,8 +610,8 @@ export function PriceChart({ symbol, timeframe }: Props) {
     ema20Ref.current?.applyOptions({ visible: v("ema20") });
     ema50Ref.current?.applyOptions({ visible: v("ema50") });
     ema200Ref.current?.applyOptions({ visible: v("ema200") });
-    for (const item of EMA_SET) {
-      emaSetRefs.current[item.key]?.applyOptions({ visible: v("emaSet") });
+    for (const key of MA_SERIES_KEYS) {
+      emaSetRefs.current[key]?.applyOptions({ visible: v("emaSet") });
     }
     if (bollingerUpperRef.current) bollingerUpperRef.current.applyOptions({ visible: v("bollinger") });
     if (bollingerMiddleRef.current) bollingerMiddleRef.current.applyOptions({ visible: v("bollinger") });
@@ -662,27 +656,30 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (indicators.emaSet) {
       updateEmaSet();
     } else if (!indicators.emaSet) {
-      for (const item of EMA_SET) {
-        const series = emaSetRefs.current[item.key];
+      for (const key of MA_SERIES_KEYS) {
+        const series = emaSetRefs.current[key];
         series?.setData([]);
       }
     }
     requestAnimationFrame(() => recomputePaneOffsets());
-  }, [indicators.emaSet, hidden.emaSet]);
+  }, [indicators.emaSet, hidden.emaSet, config.maSet]);
 
   useEffect(() => {
     if (!chartRef.current) return;
     const basePane = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
     const paneIndex = basePane;
+    const needLowerPane = indicators.adx || indicators.squeeze;
 
-    if (indicators.adx && (!adxRef.current || adxPaneIndexRef.current !== paneIndex)) {
-      if (adxRef.current) {
-        chartRef.current.removeSeries(adxRef.current);
-        if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
-        if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
-      }
+    if (needLowerPane && (!adxRef.current || adxPaneIndexRef.current !== paneIndex || squeezePaneIndexRef.current !== paneIndex)) {
+      if (adxRef.current) chartRef.current.removeSeries(adxRef.current);
+      if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
+      if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
+      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+
       adxRef.current = chartRef.current.addSeries(LineSeries, {
         ...getStyle("adx", INDICATOR_COLORS.adx, 1),
+        priceScaleId: "left",
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -690,6 +687,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       plusDIRef.current = chartRef.current.addSeries(LineSeries, {
         color: TV_COLORS.blue,
         lineWidth: 1,
+        priceScaleId: "left",
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -697,40 +695,13 @@ export function PriceChart({ symbol, timeframe }: Props) {
       minusDIRef.current = chartRef.current.addSeries(LineSeries, {
         color: TV_COLORS.textMuted,
         lineWidth: 1,
+        priceScaleId: "left",
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
-      adxPaneIndexRef.current = paneIndex;
-      try {
-        chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
-        chartRef.current.panes()[0]?.setStretchFactor(3);
-      } catch {}
-      updateADX();
-    }
-
-    if (!indicators.adx && adxRef.current) {
-      chartRef.current.removeSeries(adxRef.current);
-      if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
-      if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
-      adxRef.current = null;
-      plusDIRef.current = null;
-      minusDIRef.current = null;
-      adxPaneIndexRef.current = null;
-    }
-
-    requestAnimationFrame(() => recomputePaneOffsets());
-  }, [indicators.adx, indicators.rsi, indicators.macd]);
-
-  useEffect(() => {
-    if (!chartRef.current) return;
-    const basePane = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
-    const paneIndex = basePane + (indicators.adx ? 1 : 0);
-
-    if (indicators.squeeze && (!squeezeHistRef.current || squeezePaneIndexRef.current !== paneIndex)) {
-      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
-      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
       squeezeHistRef.current = chartRef.current.addSeries(HistogramSeries, {
+        priceScaleId: "right",
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
@@ -738,25 +709,41 @@ export function PriceChart({ symbol, timeframe }: Props) {
         color: TV_COLORS.textMuted,
         lineWidth: 1,
         lineStyle: 2,
+        priceScaleId: "right",
         crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
+      adxPaneIndexRef.current = paneIndex;
       squeezePaneIndexRef.current = paneIndex;
       try {
         chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
         chartRef.current.panes()[0]?.setStretchFactor(3);
       } catch {}
-      updateSqueeze();
+      if (indicators.adx) updateADX();
+      if (indicators.squeeze) updateSqueeze();
     }
 
-    if (!indicators.squeeze && squeezeHistRef.current) {
-      chartRef.current.removeSeries(squeezeHistRef.current);
+    if (!needLowerPane && adxRef.current) {
+      chartRef.current.removeSeries(adxRef.current);
+      if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
+      if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
       if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+      adxRef.current = null;
+      plusDIRef.current = null;
+      minusDIRef.current = null;
       squeezeHistRef.current = null;
       squeezeZeroRef.current = null;
+      adxPaneIndexRef.current = null;
       squeezePaneIndexRef.current = null;
     }
+
+    if (adxRef.current) adxRef.current.applyOptions({ visible: indicators.adx });
+    if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: indicators.adx });
+    if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: indicators.adx });
+    if (squeezeHistRef.current) squeezeHistRef.current.applyOptions({ visible: indicators.squeeze });
+    if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: indicators.squeeze });
 
     requestAnimationFrame(() => recomputePaneOffsets());
   }, [indicators.squeeze, indicators.adx, indicators.rsi, indicators.macd]);
@@ -819,7 +806,11 @@ export function PriceChart({ symbol, timeframe }: Props) {
     apply("ema20", ema20Ref.current, INDICATOR_COLORS.ema20, 1);
     apply("ema50", ema50Ref.current, INDICATOR_COLORS.ema50, 1);
     apply("ema200", ema200Ref.current, INDICATOR_COLORS.ema200, 2);
-    for (const item of EMA_SET) apply("emaSet", emaSetRefs.current[item.key] ?? null, item.color, 1);
+    for (let i = 0; i < MA_SERIES_KEYS.length; i++) {
+      const key = MA_SERIES_KEYS[i];
+      const color = config.maSet?.[i]?.color ?? DEFAULT_CONFIG.maSet?.[i]?.color ?? "#f59e0b";
+      apply("emaSet", emaSetRefs.current[key] ?? null, color, 1);
+    }
     apply("bollinger", bollingerUpperRef.current, "rgba(100, 181, 246, 0.45)", 1);
     apply("bollinger", bollingerMiddleRef.current, "rgba(255, 255, 255, 0.28)", 1);
     apply("bollinger", bollingerLowerRef.current, "rgba(100, 181, 246, 0.45)", 1);
@@ -890,14 +881,22 @@ export function PriceChart({ symbol, timeframe }: Props) {
     const c = candlesRef.current;
     if (c.length === 0) return;
     const cfg = configRef.current;
-    const periods = cfg.emaSetPeriods && cfg.emaSetPeriods.length > 0 ? cfg.emaSetPeriods : EMA_SET.map((i) => i.period);
-    // Map provided periods to visible series in EMA_SET order (truncate/expand as needed)
-    for (let i = 0; i < EMA_SET.length; i++) {
-      const item = EMA_SET[i];
-      const series = emaSetRefs.current[item.key];
+    const slots = cfg.maSet && cfg.maSet.length > 0 ? cfg.maSet : (DEFAULT_CONFIG.maSet ?? []);
+    for (let i = 0; i < MA_SERIES_KEYS.length; i++) {
+      const key = MA_SERIES_KEYS[i];
+      const series = emaSetRefs.current[key];
       if (!series) continue;
-      const period = periods[i] ?? item.period;
-      const raw = item.kind === "ema" ? ema(c, period) : sma(c, period);
+      const slot = slots[i] ?? (DEFAULT_CONFIG.maSet?.[i] ?? { enabled: false, period: 20, color: "#f59e0b" });
+      series.applyOptions({
+        color: slot.color,
+        lineWidth: getStyle("emaSet", slot.color, 1).lineWidth,
+      });
+      if (!slot.enabled) {
+        series.setData([]);
+        continue;
+      }
+      const period = Math.max(2, Math.min(500, slot.period));
+      const raw = ema(c, period);
       const mapped = raw.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
       if (live && mapped.length > 0) series.update(mapped[mapped.length - 1]);
       else series.setData(mapped);
@@ -1171,8 +1170,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   // Determine which pane each indicator lives in (based on current layout)
   const rsiPaneIdx = 1;
   const macdPaneIdx = indicators.rsi ? 2 : 1;
-  const adxPaneIdx = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
-  const squeezePaneIdx = adxPaneIdx + (indicators.adx ? 1 : 0);
+  const lowerPaneIdx = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
 
   let measureRender: React.ReactNode = null;
   if (
@@ -1390,41 +1388,37 @@ export function PriceChart({ symbol, timeframe }: Props) {
         </div>
       )}
 
-      {indicators.adx && paneOffsets[adxPaneIdx] && (
+      {(indicators.adx || indicators.squeeze) && paneOffsets[lowerPaneIdx] && (
         <div
-          style={{ top: paneOffsets[adxPaneIdx].top + 6, left: 12 }}
-          className="pointer-events-none absolute z-10"
+          style={{ top: paneOffsets[lowerPaneIdx].top + 6, left: 12 }}
+          className="pointer-events-none absolute z-10 flex flex-col gap-1"
         >
-          <IndicatorPill
-            name="ADX / DI"
-            value={
-              lastValues.adx !== undefined
-                ? `${lastValues.adx.toFixed(2)} / ${(lastValues.plusDI ?? 0).toFixed(2)} / ${(lastValues.minusDI ?? 0).toFixed(2)}`
-                : undefined
-            }
-            color={INDICATOR_COLORS.adx}
-            hidden={hidden.adx}
-            onToggleHide={() => toggleHidden("adx")}
-            onSettings={() => setSettingsTarget("adx")}
-            onRemove={() => removeIndicator("adx")}
-          />
-        </div>
-      )}
-
-      {indicators.squeeze && paneOffsets[squeezePaneIdx] && (
-        <div
-          style={{ top: paneOffsets[squeezePaneIdx].top + 6, left: 12 }}
-          className="pointer-events-none absolute z-10"
-        >
-          <IndicatorPill
-            name="Squeeze"
-            value={lastValues.squeeze !== undefined ? lastValues.squeeze.toFixed(2) : undefined}
-            color={INDICATOR_COLORS.squeeze}
-            hidden={hidden.squeeze}
-            onToggleHide={() => toggleHidden("squeeze")}
-            onSettings={() => setSettingsTarget("squeeze")}
-            onRemove={() => removeIndicator("squeeze")}
-          />
+          {indicators.adx && (
+            <IndicatorPill
+              name="ADX / DI"
+              value={
+                lastValues.adx !== undefined
+                  ? `${lastValues.adx.toFixed(2)} / ${(lastValues.plusDI ?? 0).toFixed(2)} / ${(lastValues.minusDI ?? 0).toFixed(2)}`
+                  : undefined
+              }
+              color={INDICATOR_COLORS.adx}
+              hidden={hidden.adx}
+              onToggleHide={() => toggleHidden("adx")}
+              onSettings={() => setSettingsTarget("adx")}
+              onRemove={() => removeIndicator("adx")}
+            />
+          )}
+          {indicators.squeeze && (
+            <IndicatorPill
+              name="Squeeze"
+              value={lastValues.squeeze !== undefined ? lastValues.squeeze.toFixed(2) : undefined}
+              color={INDICATOR_COLORS.squeeze}
+              hidden={hidden.squeeze}
+              onToggleHide={() => toggleHidden("squeeze")}
+              onSettings={() => setSettingsTarget("squeeze")}
+              onRemove={() => removeIndicator("squeeze")}
+            />
+          )}
         </div>
       )}
     </div>

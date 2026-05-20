@@ -72,6 +72,13 @@ export interface IndicatorConfig {
   /** Squeeze parameters */
   squeezeBBLength?: number;
   squeezeKeltnerLength?: number;
+  maSet?: MAConfig[];
+}
+
+export interface MAConfig {
+  enabled: boolean;
+  period: number;
+  color: string;
 }
 
 export interface IndicatorStyle {
@@ -91,6 +98,15 @@ export const DEFAULT_CONFIG: IndicatorConfig = {
   adxPeriod: 14,
   squeezeBBLength: 20,
   squeezeKeltnerLength: 20,
+  maSet: [
+    { enabled: true, period: 10, color: "#f59e0b" },
+    { enabled: true, period: 21, color: "#22c55e" },
+    { enabled: true, period: 34, color: "#ef4444" },
+    { enabled: true, period: 55, color: "#38bdf8" },
+    { enabled: true, period: 99, color: "#a855f7" },
+    { enabled: true, period: 200, color: "#facc15" },
+    { enabled: false, period: 400, color: "#60a5fa" },
+  ],
 };
 
 export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
