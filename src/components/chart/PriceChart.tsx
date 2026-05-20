@@ -164,6 +164,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const removeIndicator = useChartStore((s) => s.removeIndicator);
   const toggleHidden = useChartStore((s) => s.toggleHidden);
   const setSettingsTarget = useChartStore((s) => s.setSettingsTarget);
+  const setSymbol = useChartStore((s) => s.setSymbol);
 
   // Refs to avoid recreating subscribeClick on every tool change
   const toolRef = useRef(tool);
@@ -1093,7 +1094,21 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     async function load() {
       try {
-        const klines = await fetchKlines(symbol, timeframe, 500);
+        let klines: Candle[] = [];
+        try {
+          klines = await fetchKlines(symbol, timeframe, 500);
+        } catch {
+          if (symbol !== "BTCUSDT.P") {
+            setSymbol("BTCUSDT.P");
+            klines = await fetchKlines("BTCUSDT.P", timeframe, 500);
+          } else {
+            throw new Error("No se pudo cargar BTCUSDT.P");
+          }
+        }
+        if (klines.length === 0 && symbol !== "BTCUSDT.P") {
+          setSymbol("BTCUSDT.P");
+          klines = await fetchKlines("BTCUSDT.P", timeframe, 500);
+        }
         if (cancelled) return;
         candlesRef.current = klines;
         if (candleSeriesRef.current) {

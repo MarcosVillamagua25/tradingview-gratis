@@ -1,6 +1,6 @@
 import type { Candle, Timeframe } from "./types";
 
-const WS_BASE = "wss://fstream.binance.com/stream";
+const WS_BASE = "wss://fstream.binance.com/ws";
 
 function toApiSymbol(symbol: string): string {
   return symbol.toUpperCase().replace(/\.P$/, "");
@@ -46,7 +46,37 @@ interface MiniTickerMsg {
   };
 }
 
-type WSMsg = KlineMsg | MiniTickerMsg;
+interface RawKlineMsg {
+  e: "kline";
+  E: number;
+  s: string;
+  k: {
+    t: number;
+    T: number;
+    s: string;
+    i: string;
+    o: string;
+    c: string;
+    h: string;
+    l: string;
+    v: string;
+    x: boolean;
+  };
+}
+
+interface RawMiniTickerMsg {
+  e: string;
+  E: number;
+  s: string;
+  c: string;
+  o: string;
+  h: string;
+  l: string;
+  v: string;
+  q: string;
+}
+
+type WSMsg = KlineMsg | MiniTickerMsg | RawKlineMsg | RawMiniTickerMsg;
 
 export interface KlineSubscription {
   symbol: string;
@@ -92,7 +122,8 @@ export class BinanceWS {
     this.ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data) as WSMsg | { result: unknown; id: number };
-        if ("stream" in msg) this.dispatch(msg);
+        if ("result" in msg) return;
+        this.dispatch(msg as WSMsg);
       } catch {
         // ignore
       }
@@ -124,7 +155,7 @@ export class BinanceWS {
   }
 
   private dispatch(msg: WSMsg) {
-    if (msg.stream.includes("@kline_")) {
+    if ("stream" in msg && msg.stream.includes("@kline_")) {
       const sub = this.klineSubs.get(msg.stream);
       if (!sub) return;
       const k = (msg as KlineMsg).data.k;
@@ -137,9 +168,49 @@ export class BinanceWS {
         volume: parseFloat(k.v),
         isFinal: k.x,
       });
-    } else if (msg.stream.includes("@miniTicker")) {
+      return;
+    }
+
+    if ("stream" in msg && msg.stream.includes("@miniTicker")) {
       const handler = this.tickerSubs.get(msg.stream);
       if (handler) handler((msg as MiniTickerMsg).data);
+      return;
+    }
+
+    if ("e" in msg && msg.e === "kline" && "k" in msg) {
+      const raw = msg as RawKlineMsg;
+      const stream = `${raw.s.toLowerCase()}@kline_${raw.k.i}`;
+      const sub = this.klineSubs.get(stream);
+      if (!sub) return;
+      sub.onCandle({
+        time: Math.floor(raw.k.t / 1000),
+        open: parseFloat(raw.k.o),
+        high: parseFloat(raw.k.h),
+        low: parseFloat(raw.k.l),
+        close: parseFloat(raw.k.c),
+        volume: parseFloat(raw.k.v),
+        isFinal: raw.k.x,
+      });
+      return;
+    }
+
+    if ("e" in msg && msg.e.toLowerCase().includes("miniticker") && "s" in msg) {
+      const raw = msg as RawMiniTickerMsg;
+      const stream = `${raw.s.toLowerCase()}@miniTicker`;
+      const handler = this.tickerSubs.get(stream);
+      if (handler) {
+        handler({
+          e: raw.e,
+          E: raw.E,
+          s: raw.s,
+          c: raw.c,
+          o: raw.o,
+          h: raw.h,
+          l: raw.l,
+          v: raw.v,
+          q: raw.q,
+        });
+      }
     }
   }
 
