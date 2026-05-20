@@ -19,9 +19,12 @@ const TITLES: Record<IndicatorKey, string> = {
   ema20: "EMA — Slot 1",
   ema50: "EMA — Slot 2",
   ema200: "EMA — Slot 3",
+  emaSet: "EMA/MA Set",
   bollinger: "Bandas de Bollinger",
   rsi: "RSI",
   macd: "MACD",
+  adx: "ADX",
+  squeeze: "Squeeze Momentum",
   volume: "Volumen",
 };
 
@@ -83,6 +86,10 @@ function SettingsForm({ target, config, onSave, onReset }: FormProps) {
     macdFast: config.macdFast,
     macdSlow: config.macdSlow,
     macdSignal: config.macdSignal,
+    emaSetPeriods: (config.emaSetPeriods || []).join(","),
+    adxPeriod: config.adxPeriod ?? 14,
+    squeezeBBLength: config.squeezeBBLength ?? 20,
+    squeezeKeltnerLength: config.squeezeKeltnerLength ?? 20,
   });
 
   function save() {
@@ -97,7 +104,18 @@ function SettingsForm({ target, config, onSave, onReset }: FormProps) {
         macdSlow: clamp(draft.macdSlow, 2, 200),
         macdSignal: clamp(draft.macdSignal, 2, 100),
       });
-    else if (target === "volume") onSave({});
+    else if (target === "emaSet") {
+      const arr = (draft.emaSetPeriods || "")
+        .split(/[,\s]+/) 
+        .map((s) => parseInt(s, 10))
+        .filter((n) => !isNaN(n) && n > 0)
+        .slice(0, 8);
+      onSave({ emaSetPeriods: arr });
+    } else if (target === "adx") {
+      onSave({ adxPeriod: clamp(draft.adxPeriod, 2, 200) });
+    } else if (target === "squeeze") {
+      onSave({ squeezeBBLength: clamp(draft.squeezeBBLength, 2, 200), squeezeKeltnerLength: clamp(draft.squeezeKeltnerLength, 2, 200) });
+    } else if (target === "volume") onSave({});
   }
 
   return (
@@ -145,6 +163,44 @@ function SettingsForm({ target, config, onSave, onReset }: FormProps) {
           El indicador de volumen no tiene parámetros configurables en esta
           versión.
         </p>
+      )}
+      {(target === "emaSet" || target === "adx" || target === "squeeze") && (
+        <>
+          {target === "emaSet" && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
+                Períodos (csv)
+              </span>
+              <Input
+                value={draft.emaSetPeriods}
+                onChange={(e) => setDraft((d) => ({ ...d, emaSetPeriods: e.target.value }))}
+                className="bg-tv-bg"
+              />
+              <p className="text-xs text-tv-text-muted">Ej: 21,55,100,200</p>
+            </label>
+          )}
+          {target === "adx" && (
+            <Field
+              label="Período ADX"
+              value={draft.adxPeriod}
+              onChange={(n) => setDraft((d) => ({ ...d, adxPeriod: n }))}
+            />
+          )}
+          {target === "squeeze" && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="BB Length"
+                value={draft.squeezeBBLength}
+                onChange={(n) => setDraft((d) => ({ ...d, squeezeBBLength: n }))}
+              />
+              <Field
+                label="Keltner Length"
+                value={draft.squeezeKeltnerLength}
+                onChange={(n) => setDraft((d) => ({ ...d, squeezeKeltnerLength: n }))}
+              />
+            </div>
+          )}
+        </>
       )}
 
       <div className="mt-2 flex items-center justify-between">

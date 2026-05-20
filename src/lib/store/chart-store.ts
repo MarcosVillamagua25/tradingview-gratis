@@ -8,9 +8,12 @@ export type IndicatorKey =
   | "ema20"
   | "ema50"
   | "ema200"
+  | "emaSet"
   | "bollinger"
   | "rsi"
   | "macd"
+  | "adx"
+  | "squeeze"
   | "volume";
 
 export type DrawingTool =
@@ -62,6 +65,13 @@ export interface IndicatorConfig {
   macdFast: number;
   macdSlow: number;
   macdSignal: number;
+  /** EMA set custom periods (optional) */
+  emaSetPeriods?: number[];
+  /** ADX period */
+  adxPeriod?: number;
+  /** Squeeze parameters */
+  squeezeBBLength?: number;
+  squeezeKeltnerLength?: number;
 }
 
 export const DEFAULT_CONFIG: IndicatorConfig = {
@@ -72,38 +82,48 @@ export const DEFAULT_CONFIG: IndicatorConfig = {
   macdFast: 12,
   macdSlow: 26,
   macdSignal: 9,
+  emaSetPeriods: [21, 55, 100, 200],
+  adxPeriod: 14,
+  squeezeBBLength: 20,
+  squeezeKeltnerLength: 20,
 };
 
 export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
   ema20: "#ffb74d",
   ema50: "#2962ff",
   ema200: "#ab47bc",
+  emaSet: "#f4c430",
   bollinger: "#64b5f6",
   rsi: "#ab47bc",
   macd: "#2962ff",
+  adx: "#26a69a",
+  squeeze: "#ef5350",
   volume: "#787b86",
 };
 
 export const DEFAULT_WATCHLIST = [
   "BTCUSDT",
-  "ETHUSDT",
-  "SOLUSDT",
-  "BNBUSDT",
+  "ALGOUSDT",
   "XRPUSDT",
-  "DOGEUSDT",
+  "SOLUSDT",
+  "AKTUSDT",
+  "COMPUSDT",
+  "NEARUSDT",
   "ADAUSDT",
-  "AVAXUSDT",
-  "LINKUSDT",
-  "MATICUSDT",
+  "XAUUSDT",
+  "NVDAUSDT",
 ];
 
 const DEFAULT_INDICATORS: Record<IndicatorKey, boolean> = {
   ema20: false,
   ema50: false,
   ema200: false,
+  emaSet: false,
   bollinger: false,
   rsi: false,
   macd: false,
+  adx: false,
+  squeeze: false,
   volume: true,
 };
 
@@ -111,9 +131,12 @@ const DEFAULT_HIDDEN: Record<IndicatorKey, boolean> = {
   ema20: false,
   ema50: false,
   ema200: false,
+  emaSet: false,
   bollinger: false,
   rsi: false,
   macd: false,
+  adx: false,
+  squeeze: false,
   volume: false,
 };
 
@@ -132,6 +155,8 @@ interface ChartState {
   tool: DrawingTool;
   priceLines: PriceLine[];
   drawings: DrawingShape[];
+  selectedDrawingId: string | null;
+  candleTheme: "default" | "classic" | "mono";
   symbolDialogOpen: boolean;
   /** Which indicator's settings dialog is open (null = closed) */
   settingsTarget: IndicatorKey | null;
@@ -149,8 +174,11 @@ interface ChartState {
   addPriceLine: (price: number, symbol: string) => void;
   clearPriceLines: (symbol?: string) => void;
   addDrawing: (shape: Omit<DrawingShape, "id">) => void;
+  updateDrawing: (id: string, patch: Partial<Omit<DrawingShape, "id" | "symbol">>) => void;
   removeDrawing: (id: string) => void;
   clearDrawings: (symbol?: string) => void;
+  selectDrawing: (id: string | null) => void;
+  setCandleTheme: (theme: "default" | "classic" | "mono") => void;
   setSymbolDialogOpen: (v: boolean) => void;
   setSettingsTarget: (k: IndicatorKey | null) => void;
 }
@@ -167,6 +195,8 @@ export const useChartStore = create<ChartState>()(
       tool: "cursor",
       priceLines: [],
       drawings: [],
+      selectedDrawingId: null,
+      candleTheme: "default",
       symbolDialogOpen: false,
       settingsTarget: null,
 
@@ -232,38 +262,56 @@ export const useChartStore = create<ChartState>()(
                   : `${Date.now()}-${Math.random()}`,
             },
           ],
+          selectedDrawingId: null,
+        })),
+      updateDrawing: (id, patch) =>
+        set((state) => ({
+          drawings: state.drawings.map((shape) =>
+            shape.id === id ? { ...shape, ...patch } : shape,
+          ),
         })),
       removeDrawing: (id) =>
         set((state) => ({
           drawings: state.drawings.filter((shape) => shape.id !== id),
+          selectedDrawingId: state.selectedDrawingId === id ? null : state.selectedDrawingId,
         })),
       clearDrawings: (symbol) =>
         set((state) => ({
           drawings: symbol
             ? state.drawings.filter((shape) => shape.symbol !== symbol)
             : [],
+          selectedDrawingId:
+            symbol && state.selectedDrawingId
+              ? state.drawings.some((shape) => shape.id === state.selectedDrawingId && shape.symbol === symbol)
+                ? null
+                : state.selectedDrawingId
+              : null,
         })),
+      selectDrawing: (selectedDrawingId) => set({ selectedDrawingId }),
+      setCandleTheme: (candleTheme) => set({ candleTheme }),
       setSymbolDialogOpen: (symbolDialogOpen) => set({ symbolDialogOpen }),
       setSettingsTarget: (settingsTarget) => set({ settingsTarget }),
     }),
     {
       name: "tv-gratis-chart-state",
-      version: 2,
-      migrate: (persistedState) => {
+      version: 3,
+      migrate: (persistedState, _version) => {
         const state = persistedState as Partial<ChartState> | null;
         return {
-        symbol: typeof state?.symbol === "string" ? state.symbol : "BTCUSDT",
-        timeframe: (state?.timeframe ?? "15m") as Timeframe,
-        indicators: { ...DEFAULT_INDICATORS },
-        hidden: { ...DEFAULT_HIDDEN },
-        config: { ...DEFAULT_CONFIG },
-        watchlist: Array.isArray(state?.watchlist) ? state.watchlist : DEFAULT_WATCHLIST,
-        tool: "cursor",
-        priceLines: [],
-        drawings: [],
-        symbolDialogOpen: false,
-        settingsTarget: null,
-      };
+          symbol: typeof state?.symbol === "string" ? state.symbol : "BTCUSDT",
+          timeframe: (state?.timeframe ?? "15m") as Timeframe,
+          indicators: { ...DEFAULT_INDICATORS },
+          hidden: { ...DEFAULT_HIDDEN },
+          config: { ...DEFAULT_CONFIG },
+          watchlist: Array.isArray(state?.watchlist) ? state.watchlist : DEFAULT_WATCHLIST,
+          tool: "cursor",
+          priceLines: [],
+          drawings: [],
+          selectedDrawingId: null,
+          candleTheme: "default" as const,
+          symbolDialogOpen: false,
+          settingsTarget: null,
+        };
       },
       partialize: (s) => ({
         symbol: s.symbol,
@@ -273,6 +321,7 @@ export const useChartStore = create<ChartState>()(
         config: s.config,
         watchlist: s.watchlist,
         drawings: s.drawings,
+        candleTheme: s.candleTheme,
       }),
     },
   ),

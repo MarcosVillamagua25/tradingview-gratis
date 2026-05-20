@@ -30,6 +30,7 @@ const ENTRIES: Entry[] = [
   { key: "ema20", group: "Medias móviles", label: (c) => `EMA ${c.ema20}` },
   { key: "ema50", group: "Medias móviles", label: (c) => `EMA ${c.ema50}` },
   { key: "ema200", group: "Medias móviles", label: (c) => `EMA ${c.ema200}` },
+  { key: "emaSet", group: "Medias móviles", label: () => "EMA/MA Set (7EMA/5MA)" },
   { key: "bollinger", group: "Medias móviles", label: () => "Bollinger (20, 2)" },
   { key: "volume", group: "Volumen", label: () => "Volumen" },
   { key: "rsi", group: "Osciladores", label: (c) => `RSI (${c.rsi})` },
@@ -38,6 +39,8 @@ const ENTRIES: Entry[] = [
     group: "Osciladores",
     label: (c) => `MACD (${c.macdFast}, ${c.macdSlow}, ${c.macdSignal})`,
   },
+  { key: "adx", group: "Osciladores", label: () => "ADX + DI" },
+  { key: "squeeze", group: "Osciladores", label: () => "Squeeze Momentum" },
 ];
 
 export function IndicatorMenu() {

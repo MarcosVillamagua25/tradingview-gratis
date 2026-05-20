@@ -28,6 +28,13 @@ type InteractionState = {
   points: DrawingPoint[];
 };
 
+type DragState = {
+  pointerId: number;
+  shapeId: string;
+  origin: DrawingPoint;
+  original: DrawingPoint[];
+};
+
 const ACTIVE_TOOLS = new Set<DrawingTool>([
   "trendline",
   "fibonacci",
@@ -100,13 +107,32 @@ export function DrawingLayer({
 }: Props) {
   const drawings = useChartStore((s) => s.drawings);
   const addDrawing = useChartStore((s) => s.addDrawing);
+  const updateDrawing = useChartStore((s) => s.updateDrawing);
+  const removeDrawing = useChartStore((s) => s.removeDrawing);
+  const selectedDrawingId = useChartStore((s) => s.selectedDrawingId);
+  const selectDrawing = useChartStore((s) => s.selectDrawing);
   const [draft, setDraft] = useState<DrawingShape | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
 
   useEffect(() => {
     interactionRef.current = null;
+    dragRef.current = null;
     setDraft(null);
   }, [tool, symbol]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedDrawingId) {
+          removeDrawing(selectedDrawingId);
+          selectDrawing(null);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [removeDrawing, selectDrawing, selectedDrawingId]);
 
   const symbolDrawings = useMemo(
     () => drawings.filter((shape) => shape.symbol === symbol),
@@ -126,6 +152,57 @@ export function DrawingLayer({
       }
     }
     return best;
+  }
+
+  function toScreen(shape: DrawingShape) {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!chart || !series || shape.points.length < 2) return null;
+    const ts = chart.timeScale();
+    const points = shape.points
+      .map((pt) => {
+        const x = ts.timeToCoordinate(pt.time as UTCTimestamp);
+        const y = series.priceToCoordinate(pt.price);
+        if (x === null || y === null) return null;
+        return { x, y, point: pt };
+      })
+      .filter(Boolean) as Array<{ x: number; y: number; point: DrawingPoint }>;
+    return points.length > 0 ? points : null;
+  }
+
+  function bbox(points: { x: number; y: number }[]) {
+    return {
+      left: Math.min(...points.map((p) => p.x)),
+      right: Math.max(...points.map((p) => p.x)),
+      top: Math.min(...points.map((p) => p.y)),
+      bottom: Math.max(...points.map((p) => p.y)),
+    };
+  }
+
+  function hitTestShape(shape: DrawingShape, x: number, y: number): boolean {
+    const screen = toScreen(shape);
+    if (!screen || screen.length === 0) return false;
+    const margin = 10;
+    if (shape.kind === "brush") {
+      const box = bbox(screen);
+      return x >= box.left - margin && x <= box.right + margin && y >= box.top - margin && y <= box.bottom + margin;
+    }
+    const box = bbox(screen);
+    return x >= box.left - margin && x <= box.right + margin && y >= box.top - margin && y <= box.bottom + margin;
+  }
+
+  function translatePoints(points: DrawingPoint[], deltaTime: number, deltaPrice: number) {
+    return points.map((pt) => ({
+      time: pt.time + deltaTime,
+      price: pt.price + deltaPrice,
+    }));
+  }
+
+  function getPointFromPointer(event: ReactPointerEvent<HTMLDivElement>): DrawingPoint | null {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    return snapPoint(x, y, event.ctrlKey || event.metaKey);
   }
 
   function snapPoint(x: number, y: number, ctrlKey: boolean): DrawingPoint | null {
@@ -162,13 +239,6 @@ export function DrawingLayer({
     return makePoint(candle.time, snappedPrice);
   }
 
-  function getPointFromEvent(event: ReactPointerEvent<HTMLDivElement>): DrawingPoint | null {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    return snapPoint(x, y, event.ctrlKey || event.metaKey);
-  }
-
   function updateDraft(points: DrawingPoint[], kind: DrawingShapeKind) {
     setDraft({
       id: "draft",
@@ -196,9 +266,26 @@ export function DrawingLayer({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!isDrawingTool(tool)) return;
-    const point = getPointFromEvent(event);
+    const point = getPointFromPointer(event);
     if (!point) return;
+
+    if (tool === "cursor") {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const target = [...symbolDrawings].reverse().find((shape) => hitTestShape(shape, x, y));
+      if (target) {
+        selectDrawing(target.id);
+        const original = target.points.map((pt) => ({ ...pt }));
+        dragRef.current = { pointerId: event.pointerId, shapeId: target.id, origin: point, original };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+      selectDrawing(null);
+      return;
+    }
+
+    if (!isDrawingTool(tool)) return;
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -215,10 +302,20 @@ export function DrawingLayer({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag && drag.pointerId === event.pointerId) {
+      const current = getPointFromPointer(event);
+      if (!current) return;
+      const deltaTime = current.time - drag.origin.time;
+      const deltaPrice = current.price - drag.origin.price;
+      updateDrawing(drag.shapeId, { points: translatePoints(drag.original, deltaTime, deltaPrice) });
+      return;
+    }
+
     const current = interactionRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
 
-    const point = getPointFromEvent(event);
+    const point = getPointFromPointer(event);
     if (!point) return;
 
     if (current.kind === "brush") {
@@ -235,12 +332,17 @@ export function DrawingLayer({
   }
 
   function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag && drag.pointerId === event.pointerId) {
+      dragRef.current = null;
+      return;
+    }
     const current = interactionRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
     finalizeDraft();
   }
 
-  function renderLine(shape: DrawingShape, preview = false) {
+  function renderLine(shape: DrawingShape, preview = false, selected = false) {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || shape.points.length < 2) return null;
@@ -261,7 +363,7 @@ export function DrawingLayer({
           x2={bX}
           y2={bY}
           stroke={shape.color}
-          strokeWidth={shape.width ?? 2}
+          strokeWidth={(shape.width ?? 2) + (selected ? 1 : 0)}
           strokeDasharray={preview ? "4,3" : undefined}
         />
         <circle cx={aX} cy={aY} r={3} fill={shape.color} opacity={0.9} />
@@ -270,7 +372,7 @@ export function DrawingLayer({
     );
   }
 
-  function renderRectangle(shape: DrawingShape, preview = false, label?: string) {
+  function renderRectangle(shape: DrawingShape, preview = false, label?: string, selected = false) {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || shape.points.length < 2) return null;
@@ -299,7 +401,7 @@ export function DrawingLayer({
           height={height}
           fill={shape.fill}
           stroke={shape.color}
-          strokeWidth={shape.width ?? 1.8}
+          strokeWidth={(shape.width ?? 1.8) + (selected ? 1 : 0)}
           strokeDasharray={preview ? "4,3" : undefined}
         />
         <circle cx={aX} cy={aY} r={3} fill={shape.color} opacity={0.9} />
@@ -313,7 +415,7 @@ export function DrawingLayer({
     );
   }
 
-  function renderBrush(shape: DrawingShape, preview = false) {
+  function renderBrush(shape: DrawingShape, preview = false, selected = false) {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || shape.points.length < 2) return null;
@@ -335,7 +437,7 @@ export function DrawingLayer({
         d={path}
         fill="none"
         stroke={shape.color}
-        strokeWidth={shape.width ?? 2.5}
+        strokeWidth={(shape.width ?? 2.5) + (selected ? 1 : 0)}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeDasharray={preview ? "4,3" : undefined}
@@ -343,7 +445,7 @@ export function DrawingLayer({
     );
   }
 
-  function renderFibonacci(shape: DrawingShape, preview = false) {
+  function renderFibonacci(shape: DrawingShape, preview = false, selected = false) {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || shape.points.length < 2) return null;
@@ -372,7 +474,7 @@ export function DrawingLayer({
           height={Math.max(1, bottom - top)}
           fill={shape.fill}
           stroke={shape.color}
-          strokeWidth={shape.width ?? 1.5}
+          strokeWidth={(shape.width ?? 1.5) + (selected ? 1 : 0)}
           strokeDasharray={preview ? "4,3" : undefined}
         />
         {levels.map((ratio) => {
@@ -403,7 +505,7 @@ export function DrawingLayer({
     );
   }
 
-  function renderPosition(shape: DrawingShape, preview = false) {
+  function renderPosition(shape: DrawingShape, preview = false, selected = false) {
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
     if (!chart || !series || shape.points.length < 2) return null;
@@ -434,7 +536,7 @@ export function DrawingLayer({
           height={height}
           fill={shape.fill}
           stroke={shape.color}
-          strokeWidth={shape.width ?? 1.8}
+          strokeWidth={(shape.width ?? 1.8) + (selected ? 1 : 0)}
           strokeDasharray={preview ? "4,3" : undefined}
         />
         <line
@@ -456,18 +558,19 @@ export function DrawingLayer({
   }
 
   function renderShape(shape: DrawingShape, preview = false) {
+    const selected = shape.id === selectedDrawingId;
     switch (shape.kind) {
       case "trendline":
-        return renderLine(shape, preview);
+        return <g key={shape.id} opacity={selected ? 1 : 0.95}>{renderLine(shape, preview, selected)}</g>;
       case "brush":
-        return renderBrush(shape, preview);
+        return <g key={shape.id} opacity={selected ? 1 : 0.95}>{renderBrush(shape, preview, selected)}</g>;
       case "fibonacci":
-        return renderFibonacci(shape, preview);
+        return <g key={shape.id} opacity={selected ? 1 : 0.95}>{renderFibonacci(shape, preview, selected)}</g>;
       case "position-long":
       case "position-short":
-        return renderPosition(shape, preview);
+        return <g key={shape.id} opacity={selected ? 1 : 0.95}>{renderPosition(shape, preview, selected)}</g>;
       case "rectangle":
-        return renderRectangle(shape, preview);
+        return <g key={shape.id} opacity={selected ? 1 : 0.95}>{renderRectangle(shape, preview, undefined, selected)}</g>;
       default:
         return null;
     }

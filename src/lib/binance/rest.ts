@@ -40,21 +40,33 @@ export async function fetchTicker24h(symbol: string): Promise<Ticker24h> {
 }
 
 export async function fetchTickers24h(symbols: string[]): Promise<Ticker24h[]> {
-  const arr = JSON.stringify(symbols.map((s) => s.toUpperCase()));
-  const url = `${BASE}/ticker/24hr?symbols=${encodeURIComponent(arr)}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`tickers ${res.status}`);
-  const data = await res.json();
-  return data.map((t: Record<string, string>) => ({
-    symbol: t.symbol,
-    lastPrice: parseFloat(t.lastPrice),
-    priceChange: parseFloat(t.priceChange),
-    priceChangePercent: parseFloat(t.priceChangePercent),
-    highPrice: parseFloat(t.highPrice),
-    lowPrice: parseFloat(t.lowPrice),
-    volume: parseFloat(t.volume),
-    quoteVolume: parseFloat(t.quoteVolume),
-  }));
+  try {
+    const arr = JSON.stringify(symbols.map((s) => s.toUpperCase()));
+    const url = `${BASE}/ticker/24hr?symbols=${encodeURIComponent(arr)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`tickers ${res.status}`);
+    const data = await res.json();
+    return data.map((t: Record<string, string>) => ({
+      symbol: t.symbol,
+      lastPrice: parseFloat(t.lastPrice),
+      priceChange: parseFloat(t.priceChange),
+      priceChangePercent: parseFloat(t.priceChangePercent),
+      highPrice: parseFloat(t.highPrice),
+      lowPrice: parseFloat(t.lowPrice),
+      volume: parseFloat(t.volume),
+      quoteVolume: parseFloat(t.quoteVolume),
+    }));
+  } catch {
+    const rows: Ticker24h[] = [];
+    for (const symbol of symbols) {
+      try {
+        rows.push(await fetchTicker24h(symbol));
+      } catch {
+        continue;
+      }
+    }
+    return rows;
+  }
 }
 
 let cachedSymbols: SymbolInfo[] | null = null;

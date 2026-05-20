@@ -14,7 +14,7 @@ import {
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/binance/rest";
 import { getBinanceWS } from "@/lib/binance/ws";
-import { bollinger, ema, rsi, macd } from "@/lib/indicators";
+import { adx, bollinger, ema, rsi, macd, sma, squeezeMomentum } from "@/lib/indicators";
 import type { Candle, Timeframe } from "@/lib/binance/types";
 import {
   INDICATOR_COLORS,
@@ -66,6 +66,41 @@ const TV_COLORS = {
   grid: "#1e222d",
 };
 
+const CANDLE_THEMES = {
+  default: {
+    up: TV_COLORS.green,
+    down: TV_COLORS.red,
+    wickUp: TV_COLORS.green,
+    wickDown: TV_COLORS.red,
+  },
+  classic: {
+    up: "#0ECB81",
+    down: "#F6465D",
+    wickUp: "#0ECB81",
+    wickDown: "#F6465D",
+  },
+  mono: {
+    up: "#d1d4dc",
+    down: "#787b86",
+    wickUp: "#d1d4dc",
+    wickDown: "#787b86",
+  },
+} as const;
+
+const EMA_SET = [
+  { key: "ema21", label: "EMA 21", period: 21, kind: "ema" as const, color: "#fdd835" },
+  { key: "ema55", label: "EMA 55", period: 55, kind: "ema" as const, color: "#84cc16" },
+  { key: "ema100", label: "EMA 100", period: 100, kind: "ema" as const, color: "#22d3ee" },
+  { key: "ema200a", label: "EMA 200", period: 200, kind: "ema" as const, color: "#a855f7" },
+  { key: "ema300", label: "EMA 300", period: 300, kind: "ema" as const, color: "#60a5fa" },
+  { key: "ema400", label: "EMA 400", period: 400, kind: "ema" as const, color: "#f472b6" },
+  { key: "ma11", label: "MA 11", period: 11, kind: "sma" as const, color: "#fb923c" },
+  { key: "ma23", label: "MA 23", period: 23, kind: "sma" as const, color: "#c084fc" },
+  { key: "ma25", label: "MA 25", period: 25, kind: "sma" as const, color: "#22c55e" },
+  { key: "ma39", label: "MA 39", period: 39, kind: "sma" as const, color: "#ef4444" },
+  { key: "ma200", label: "MA 200", period: 200, kind: "sma" as const, color: "#facc15" },
+] as const;
+
 interface HoverInfo {
   o: number;
   h: number;
@@ -77,6 +112,7 @@ interface HoverInfo {
 }
 
 interface LastValues {
+  emaSet?: number;
   bollingerUpper?: number;
   bollingerMiddle?: number;
   bollingerLower?: number;
@@ -87,6 +123,10 @@ interface LastValues {
   macd?: number;
   macdSignal?: number;
   macdHist?: number;
+  adx?: number;
+  plusDI?: number;
+  minusDI?: number;
+  squeeze?: number;
   volume?: number;
 }
 
@@ -103,6 +143,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const bollingerUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bollingerMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bollingerLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const emaSetRefs = useRef<Record<string, ISeriesApi<"Line"> | null>>({});
   const ema20Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema50Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const ema200Ref = useRef<ISeriesApi<"Line"> | null>(null);
@@ -112,6 +153,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const macdRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdSignalRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const adxRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const plusDIRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const minusDIRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const squeezeHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const squeezeZeroRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const adxPaneIndexRef = useRef<number | null>(null);
   const candlesRef = useRef<Candle[]>([]);
   const priceLinesMapRef = useRef<Map<string, IPriceLine>>(new Map());
 
@@ -119,6 +166,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const hidden = useChartStore((s) => s.hidden);
   const config = useChartStore((s) => s.config);
   const tool = useChartStore((s) => s.tool);
+  const candleTheme = useChartStore((s) => s.candleTheme);
   const priceLines = useChartStore((s) => s.priceLines);
   const addPriceLine = useChartStore((s) => s.addPriceLine);
   const removeIndicator = useChartStore((s) => s.removeIndicator);
@@ -195,12 +243,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     // PANE 0 — Candles + EMAs
     candleSeriesRef.current = chart.addSeries(CandlestickSeries, {
-      upColor: TV_COLORS.green,
-      downColor: TV_COLORS.red,
-      borderUpColor: TV_COLORS.green,
-      borderDownColor: TV_COLORS.red,
-      wickUpColor: TV_COLORS.green,
-      wickDownColor: TV_COLORS.red,
+      ...CANDLE_THEMES[candleTheme],
+      borderUpColor: CANDLE_THEMES[candleTheme].up,
+      borderDownColor: CANDLE_THEMES[candleTheme].down,
       priceLineColor: TV_COLORS.textMuted,
       priceLineStyle: 2,
     });
@@ -222,6 +267,15 @@ export function PriceChart({ symbol, timeframe }: Props) {
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
+    });
+
+    EMA_SET.forEach((item) => {
+      emaSetRefs.current[item.key] = chart.addSeries(LineSeries, {
+        color: item.color,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
     });
 
     bollingerUpperRef.current = chart.addSeries(LineSeries, {
@@ -352,12 +406,18 @@ export function PriceChart({ symbol, timeframe }: Props) {
       ema20Ref.current = null;
       ema50Ref.current = null;
       ema200Ref.current = null;
+      emaSetRefs.current = {};
       rsiRef.current = null;
       rsi30Ref.current = null;
       rsi70Ref.current = null;
       macdRef.current = null;
       macdSignalRef.current = null;
       macdHistRef.current = null;
+      adxRef.current = null;
+      plusDIRef.current = null;
+      minusDIRef.current = null;
+      squeezeHistRef.current = null;
+      squeezeZeroRef.current = null;
     };
   }, []);
 
@@ -512,6 +572,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
     ema20Ref.current?.applyOptions({ visible: v("ema20") });
     ema50Ref.current?.applyOptions({ visible: v("ema50") });
     ema200Ref.current?.applyOptions({ visible: v("ema200") });
+    for (const item of EMA_SET) {
+      emaSetRefs.current[item.key]?.applyOptions({ visible: v("emaSet") });
+    }
     if (bollingerUpperRef.current) bollingerUpperRef.current.applyOptions({ visible: v("bollinger") });
     if (bollingerMiddleRef.current) bollingerMiddleRef.current.applyOptions({ visible: v("bollinger") });
     if (bollingerLowerRef.current) bollingerLowerRef.current.applyOptions({ visible: v("bollinger") });
@@ -521,6 +584,11 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (macdRef.current) macdRef.current.applyOptions({ visible: v("macd") });
     if (macdSignalRef.current) macdSignalRef.current.applyOptions({ visible: v("macd") });
     if (macdHistRef.current) macdHistRef.current.applyOptions({ visible: v("macd") });
+    if (adxRef.current) adxRef.current.applyOptions({ visible: v("adx") });
+    if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: v("adx") });
+    if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: v("adx") });
+    if (squeezeHistRef.current) squeezeHistRef.current.applyOptions({ visible: v("squeeze") });
+    if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: v("squeeze") });
     if (volumeSeriesRef.current) volumeSeriesRef.current.applyOptions({ visible: v("volume") });
   }, [indicators, hidden]);
 
@@ -536,6 +604,94 @@ export function PriceChart({ symbol, timeframe }: Props) {
   useEffect(() => {
     updateMACD();
   }, [config.macdFast, config.macdSlow, config.macdSignal]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (indicators.emaSet) {
+      updateEmaSet();
+    } else if (!indicators.emaSet) {
+      for (const item of EMA_SET) {
+        const series = emaSetRefs.current[item.key];
+        series?.setData([]);
+      }
+    }
+    requestAnimationFrame(() => recomputePaneOffsets());
+  }, [indicators.emaSet, hidden.emaSet]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const paneIndex = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
+    const needPane = indicators.adx || indicators.squeeze;
+
+    if (needPane && (!adxRef.current || adxPaneIndexRef.current !== paneIndex)) {
+      if (adxRef.current && chartRef.current) {
+        chartRef.current.removeSeries(adxRef.current);
+        if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
+        if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
+        if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
+        if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+      }
+      adxRef.current = chartRef.current.addSeries(LineSeries, {
+        color: INDICATOR_COLORS.adx,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      plusDIRef.current = chartRef.current.addSeries(LineSeries, {
+        color: TV_COLORS.blue,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      minusDIRef.current = chartRef.current.addSeries(LineSeries, {
+        color: TV_COLORS.textMuted,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      squeezeHistRef.current = chartRef.current.addSeries(HistogramSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      squeezeZeroRef.current = chartRef.current.addSeries(LineSeries, {
+        color: TV_COLORS.textMuted,
+        lineWidth: 1,
+        lineStyle: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }, paneIndex);
+      adxPaneIndexRef.current = paneIndex;
+      try {
+        chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
+        chartRef.current.panes()[0]?.setStretchFactor(3);
+      } catch {}
+    }
+
+    if (indicators.adx) updateADX();
+    else if (adxRef.current) adxRef.current.setData([]);
+    if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: indicators.adx });
+    if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: indicators.adx });
+
+    if (indicators.squeeze) updateSqueeze();
+    else if (squeezeHistRef.current) squeezeHistRef.current.setData([]);
+    if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: indicators.squeeze });
+
+    if (!needPane && adxRef.current && chartRef.current) {
+      chartRef.current.removeSeries(adxRef.current);
+      if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
+      if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
+      if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
+      adxRef.current = null;
+      plusDIRef.current = null;
+      minusDIRef.current = null;
+      squeezeHistRef.current = null;
+      squeezeZeroRef.current = null;
+      adxPaneIndexRef.current = null;
+    }
+
+    requestAnimationFrame(() => recomputePaneOffsets());
+  }, [indicators.adx, indicators.squeeze, indicators.rsi, indicators.macd]);
 
   // Sync price lines from store to the candle series
   useEffect(() => {
@@ -579,6 +735,30 @@ export function PriceChart({ symbol, timeframe }: Props) {
     }
   }, [tool]);
 
+  useEffect(() => {
+    candleSeriesRef.current?.applyOptions({
+      ...CANDLE_THEMES[candleTheme],
+      borderUpColor: CANDLE_THEMES[candleTheme].up,
+      borderDownColor: CANDLE_THEMES[candleTheme].down,
+    });
+  }, [candleTheme]);
+
+  // Update volume bar colors to match the selected candle theme
+  useEffect(() => {
+    if (!volumeSeriesRef.current) return;
+    const data = candlesRef.current.map((k) => ({
+      time: k.time as UTCTimestamp,
+      value: k.volume,
+      color:
+        k.close >= k.open
+          ? `${CANDLE_THEMES[candleTheme].up}66`
+          : `${CANDLE_THEMES[candleTheme].down}66`,
+    }));
+    try {
+      volumeSeriesRef.current.setData(data);
+    } catch {}
+  }, [candleTheme]);
+
   function updateEMAs(live = false) {
     const c = candlesRef.current;
     if (c.length === 0) return;
@@ -620,6 +800,66 @@ export function PriceChart({ symbol, timeframe }: Props) {
       volume: lastVol,
     }));
   }
+
+  function updateEmaSet(live = false) {
+    const c = candlesRef.current;
+    if (c.length === 0) return;
+    const cfg = configRef.current;
+    const periods = cfg.emaSetPeriods && cfg.emaSetPeriods.length > 0 ? cfg.emaSetPeriods : EMA_SET.map((i) => i.period);
+    // Map provided periods to visible series in EMA_SET order (truncate/expand as needed)
+    for (let i = 0; i < EMA_SET.length; i++) {
+      const item = EMA_SET[i];
+      const series = emaSetRefs.current[item.key];
+      if (!series) continue;
+      const period = periods[i] ?? item.period;
+      const raw = item.kind === "ema" ? ema(c, period) : sma(c, period);
+      const mapped = raw.map((p) => ({ time: p.time as UTCTimestamp, value: p.value }));
+      if (live && mapped.length > 0) series.update(mapped[mapped.length - 1]);
+      else series.setData(mapped);
+    }
+    setLastValues((prev) => ({ ...prev, emaSet: c.at(-1)?.close }));
+  }
+
+  function updateADX(live = false) {
+    const c = candlesRef.current;
+    if (c.length === 0 || !adxRef.current || !plusDIRef.current || !minusDIRef.current) return;
+    const cfg = configRef.current;
+    const period = cfg.adxPeriod ?? 14;
+    const data = adx(c, period, period);
+    const adxPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.adx }));
+    const plusPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.plusDI }));
+    const minusPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: p.minusDI }));
+    if (live && adxPoints.length > 0) adxRef.current.update(adxPoints[adxPoints.length - 1]);
+    else adxRef.current.setData(adxPoints);
+    if (live && plusPoints.length > 0) plusDIRef.current.update(plusPoints[plusPoints.length - 1]);
+    else plusDIRef.current.setData(plusPoints);
+    if (live && minusPoints.length > 0) minusDIRef.current.update(minusPoints[minusPoints.length - 1]);
+    else minusDIRef.current.setData(minusPoints);
+    const last = data.at(-1);
+    setLastValues((prev) => ({ ...prev, adx: last?.adx, plusDI: last?.plusDI, minusDI: last?.minusDI }));
+  }
+
+  function updateSqueeze(live = false) {
+    const c = candlesRef.current;
+    if (c.length === 0 || !squeezeHistRef.current || !squeezeZeroRef.current) return;
+    const cfg = configRef.current;
+    const bbLen = cfg.squeezeBBLength ?? 20;
+    const kLen = cfg.squeezeKeltnerLength ?? 20;
+    const data = squeezeMomentum(c, bbLen, kLen);
+    const histPoints = data.map((p) => ({
+      time: p.time as UTCTimestamp,
+      value: p.value,
+      color: p.value >= 0 ? `${TV_COLORS.green}80` : `${TV_COLORS.red}80`,
+    }));
+    const zeroPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: 0 }));
+    if (live && histPoints.length > 0) squeezeHistRef.current.update(histPoints[histPoints.length - 1]);
+    else squeezeHistRef.current.setData(histPoints);
+    if (live && zeroPoints.length > 0) squeezeZeroRef.current.update(zeroPoints[zeroPoints.length - 1]);
+    else squeezeZeroRef.current.setData(zeroPoints);
+    const last = data.at(-1);
+    setLastValues((prev) => ({ ...prev, squeeze: last?.value }));
+  }
+
   function updateBollinger(live = false) {
     const c = candlesRef.current;
     if (c.length === 0) return;
@@ -736,7 +976,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
     async function load() {
       try {
-        const klines = await fetchKlines(symbol, timeframe, 300);
+        const klines = await fetchKlines(symbol, timeframe, 500);
         if (cancelled) return;
         candlesRef.current = klines;
         if (candleSeriesRef.current) {
@@ -760,9 +1000,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
           );
         }
         if (indicators.ema20 || indicators.ema50 || indicators.ema200) updateEMAs();
+        if (indicators.emaSet) updateEmaSet();
         if (indicators.bollinger) updateBollinger();
         if (indicators.rsi) updateRSI();
         if (indicators.macd) updateMACD();
+        if (indicators.adx) updateADX();
+        if (indicators.squeeze) updateSqueeze();
         chartRef.current?.timeScale().fitContent();
         requestAnimationFrame(() => recomputePaneOffsets());
 
@@ -806,9 +1049,12 @@ export function PriceChart({ symbol, timeframe }: Props) {
               });
             }
             if (indicators.ema20 || indicators.ema50 || indicators.ema200) updateEMAs(true);
+            if (indicators.emaSet) updateEmaSet(true);
             if (indicators.bollinger) updateBollinger(true);
             if (indicators.rsi) updateRSI(true);
             if (indicators.macd) updateMACD(true);
+            if (indicators.adx) updateADX(true);
+            if (indicators.squeeze) updateSqueeze(true);
             const prev = arr[arr.length - 2] ?? lastCandle;
             setLastPrice({
               value: k.close,
@@ -840,6 +1086,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   // Determine which pane each indicator lives in (based on current layout)
   const rsiPaneIdx = 1;
   const macdPaneIdx = indicators.rsi ? 2 : 1;
+  const lowerPaneIdx = 1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
 
   let measureRender: React.ReactNode = null;
   if (
@@ -1054,6 +1301,40 @@ export function PriceChart({ symbol, timeframe }: Props) {
             onSettings={() => setSettingsTarget("macd")}
             onRemove={() => removeIndicator("macd")}
           />
+        </div>
+      )}
+
+      {(indicators.adx || indicators.squeeze) && paneOffsets[lowerPaneIdx] && (
+        <div
+          style={{ top: paneOffsets[lowerPaneIdx].top + 6, left: 12 }}
+          className="pointer-events-none absolute z-10 flex flex-col gap-1"
+        >
+          {indicators.adx && (
+            <IndicatorPill
+              name="ADX / DI"
+              value={
+                lastValues.adx !== undefined
+                  ? `${lastValues.adx.toFixed(2)} / ${(lastValues.plusDI ?? 0).toFixed(2)} / ${(lastValues.minusDI ?? 0).toFixed(2)}`
+                  : undefined
+              }
+              color={INDICATOR_COLORS.adx}
+              hidden={hidden.adx}
+              onToggleHide={() => toggleHidden("adx")}
+              onSettings={() => setSettingsTarget("adx")}
+              onRemove={() => removeIndicator("adx")}
+            />
+          )}
+          {indicators.squeeze && (
+            <IndicatorPill
+              name="Squeeze"
+              value={lastValues.squeeze !== undefined ? lastValues.squeeze.toFixed(2) : undefined}
+              color={INDICATOR_COLORS.squeeze}
+              hidden={hidden.squeeze}
+              onToggleHide={() => toggleHidden("squeeze")}
+              onSettings={() => setSettingsTarget("squeeze")}
+              onRemove={() => removeIndicator("squeeze")}
+            />
+          )}
         </div>
       )}
     </div>

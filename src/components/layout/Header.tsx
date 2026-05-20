@@ -4,9 +4,19 @@ import { Code2, Zap } from "lucide-react";
 import { SymbolSelector } from "@/components/chart/SymbolSelector";
 import { TimeframeSelector } from "@/components/chart/TimeframeSelector";
 import { IndicatorMenu } from "@/components/chart/IndicatorMenu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { useChartStore } from "@/lib/store/chart-store";
 
 export function Header() {
+  const candleTheme = useChartStore((s) => s.candleTheme);
+  const setCandleTheme = useChartStore((s) => s.setCandleTheme);
+
   return (
     <header className="flex h-12 items-center justify-between border-b border-tv-border bg-tv-panel px-3">
       <div className="flex items-center gap-1">
@@ -24,6 +34,17 @@ export function Header() {
         <TimeframeSelector />
         <Separator orientation="vertical" className="mx-1 h-6 bg-tv-border" />
         <IndicatorMenu />
+        <Separator orientation="vertical" className="mx-1 h-6 bg-tv-border" />
+        <DropdownMenu>
+          <DropdownMenuTrigger className="rounded px-2.5 py-1.5 text-xs text-tv-text hover:bg-tv-panel-hover">
+            Velas: {candleTheme}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="bg-tv-panel">
+            <DropdownMenuItem onClick={() => setCandleTheme("default")}>Default</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setCandleTheme("classic")}>Classic</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setCandleTheme("mono")}>Monochrome</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div className="flex items-center gap-2">
