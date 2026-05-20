@@ -4,6 +4,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Timeframe } from "@/lib/binance/types";
 
+function toPerpSymbol(symbol: string): string {
+  return `${symbol.toUpperCase().replace(/\.P$/, "")}.P`;
+}
+
 export type IndicatorKey =
   | "ema20"
   | "ema50"
@@ -125,16 +129,17 @@ export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
 };
 
 export const DEFAULT_WATCHLIST = [
-  "BTCUSDT",
-  "ALGOUSDT",
-  "XRPUSDT",
-  "SOLUSDT",
-  "AKTUSDT",
-  "COMPUSDT",
-  "NEARUSDT",
-  "ADAUSDT",
-  "XAUUSDT",
-  "NVDAUSDT",
+  "BTCUSDT.P",
+  "ALGOUSDT.P",
+  "XRPUSDT.P",
+  "SOLUSDT.P",
+  "AKTUSDT.P",
+  "COMPUSDT.P",
+  "NEARUSDT.P",
+  "ADAUSDT.P",
+  "EURUSDT.P",
+  "GBPUSDT.P",
+  "AUDUSDT.P",
 ];
 
 const DEFAULT_INDICATORS: Record<IndicatorKey, boolean> = {
@@ -212,7 +217,7 @@ interface ChartState {
 export const useChartStore = create<ChartState>()(
   persist(
     (set) => ({
-      symbol: "BTCUSDT",
+      symbol: "BTCUSDT.P",
       timeframe: "15m" as Timeframe,
       indicators: { ...DEFAULT_INDICATORS },
       hidden: { ...DEFAULT_HIDDEN },
@@ -258,9 +263,9 @@ export const useChartStore = create<ChartState>()(
         })),
       addToWatchlist: (s) =>
         set((state) => ({
-          watchlist: state.watchlist.includes(s)
+          watchlist: state.watchlist.includes(toPerpSymbol(s))
             ? state.watchlist
-            : [...state.watchlist, s],
+            : [...state.watchlist, toPerpSymbol(s)],
         })),
       removeFromWatchlist: (s) =>
         set((state) => ({
@@ -334,14 +339,25 @@ export const useChartStore = create<ChartState>()(
       version: 3,
       migrate: (persistedState, _version) => {
         const state = persistedState as Partial<ChartState> | null;
+        const migratedWatchlist = Array.isArray(state?.watchlist)
+          ? state.watchlist.map((s) => toPerpSymbol(s))
+          : DEFAULT_WATCHLIST;
+        const forexMajors = ["EURUSDT.P", "GBPUSDT.P", "AUDUSDT.P"];
+        const watchlistWithForex = [...migratedWatchlist];
+        for (const forex of forexMajors) {
+          if (!watchlistWithForex.some((s) => toPerpSymbol(s) === forex)) {
+            watchlistWithForex.push(forex);
+          }
+        }
+
         return {
-          symbol: typeof state?.symbol === "string" ? state.symbol : "BTCUSDT",
+          symbol: typeof state?.symbol === "string" ? toPerpSymbol(state.symbol) : "BTCUSDT.P",
           timeframe: (state?.timeframe ?? "15m") as Timeframe,
           indicators: { ...DEFAULT_INDICATORS },
           hidden: { ...DEFAULT_HIDDEN },
           config: { ...DEFAULT_CONFIG },
           indicatorStyles: {},
-          watchlist: Array.isArray(state?.watchlist) ? state.watchlist : DEFAULT_WATCHLIST,
+          watchlist: watchlistWithForex,
           tool: "cursor",
           priceLines: [],
           drawings: [],

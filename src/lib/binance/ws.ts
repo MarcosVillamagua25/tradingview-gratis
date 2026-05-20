@@ -1,6 +1,14 @@
 import type { Candle, Timeframe } from "./types";
 
-const WS_BASE = "wss://stream.binance.com:9443/stream";
+const WS_BASE = "wss://fstream.binance.com/stream";
+
+function toApiSymbol(symbol: string): string {
+  return symbol.toUpperCase().replace(/\.P$/, "");
+}
+
+function toPerpSymbol(symbol: string): string {
+  return `${toApiSymbol(symbol)}.P`;
+}
 
 interface KlineMsg {
   stream: string;
@@ -75,7 +83,7 @@ export class BinanceWS {
       // Re-subscribe everything
       const streams: string[] = [];
       this.klineSubs.forEach((s) => {
-        streams.push(`${s.symbol.toLowerCase()}@kline_${s.interval}`);
+        streams.push(`${toApiSymbol(s.symbol).toLowerCase()}@kline_${s.interval}`);
       });
       this.tickerSubs.forEach((_v, k) => streams.push(k));
       if (streams.length > 0) this.send({ method: "SUBSCRIBE", params: streams, id: this.nextId++ });
@@ -136,7 +144,7 @@ export class BinanceWS {
   }
 
   subscribeKline(sub: KlineSubscription): () => void {
-    const stream = `${sub.symbol.toLowerCase()}@kline_${sub.interval}`;
+    const stream = `${toApiSymbol(sub.symbol).toLowerCase()}@kline_${sub.interval}`;
     this.klineSubs.set(stream, sub);
     if (this.connected) this.send({ method: "SUBSCRIBE", params: [stream], id: this.nextId++ });
     return () => {
@@ -149,13 +157,18 @@ export class BinanceWS {
     symbols: string[],
     onTick: (s: { symbol: string; close: number; open: number; pct: number }) => void,
   ): () => void {
-    const streams = symbols.map((s) => `${s.toLowerCase()}@miniTicker`);
+    const streamToDisplaySymbol = new Map<string, string>();
+    const streams = symbols.map((s) => {
+      const stream = `${toApiSymbol(s).toLowerCase()}@miniTicker`;
+      streamToDisplaySymbol.set(stream, toPerpSymbol(s));
+      return stream;
+    });
     streams.forEach((stream) => {
       this.tickerSubs.set(stream, (d) => {
         const close = parseFloat(d.c);
         const open = parseFloat(d.o);
         onTick({
-          symbol: d.s,
+          symbol: streamToDisplaySymbol.get(stream) ?? toPerpSymbol(d.s),
           close,
           open,
           pct: open === 0 ? 0 : ((close - open) / open) * 100,

@@ -15,6 +15,14 @@ interface Row {
   pct: number;
 }
 
+function splitSymbolLabel(symbol: string): { base: string; quote: string } {
+  const normalized = symbol.toUpperCase().replace(/\.P$/, "");
+  if (normalized.endsWith("USDT")) {
+    return { base: normalized.slice(0, -4), quote: "USDT.P" };
+  }
+  return { base: normalized, quote: "PERP" };
+}
+
 export function Watchlist() {
   const watchlist = useChartStore((s) => s.watchlist);
   const symbol = useChartStore((s) => s.symbol);
@@ -107,6 +115,7 @@ export function Watchlist() {
             const row = rows[s];
             const isActive = s === symbol;
             const f = flash[s];
+            const label = splitSymbolLabel(s);
             return (
               <div
                 key={s}
@@ -119,9 +128,9 @@ export function Watchlist() {
               >
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-tv-text">
-                    {s.replace("USDT", "")}
+                    {label.base}
                   </span>
-                  <span className="text-[10px] text-tv-text-dim">USDT</span>
+                  <span className="text-[10px] text-tv-text-dim">{label.quote}</span>
                 </div>
                 <span
                   className={cn(
