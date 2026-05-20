@@ -69,6 +69,7 @@ export interface IndicatorConfig {
   emaSetPeriods?: number[];
   /** ADX period */
   adxPeriod?: number;
+  adxKeyLevel?: number;
   /** Squeeze parameters */
   squeezeBBLength?: number;
   squeezeKeltnerLength?: number;
@@ -96,6 +97,7 @@ export const DEFAULT_CONFIG: IndicatorConfig = {
   macdSignal: 9,
   emaSetPeriods: [21, 55, 100, 200],
   adxPeriod: 14,
+  adxKeyLevel: 23,
   squeezeBBLength: 20,
   squeezeKeltnerLength: 20,
   maSet: [

@@ -320,7 +320,9 @@ export function squeezeMomentum(
     const highest = Math.max(...highs.slice(i - keltnerLength + 1, i + 1));
     const lowest = Math.min(...lows.slice(i - keltnerLength + 1, i + 1));
     const mean = (highest + lowest + ma) / 3;
-    const value = closes[i] - mean;
+    // Normalize momentum by price so the oscillator is readable across symbols.
+    const base = Math.max(Math.abs(closes[i]), 1e-9);
+    const value = ((closes[i] - mean) / base) * 100;
     out.push({
       time: candles[i].time,
       value,

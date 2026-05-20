@@ -95,6 +95,7 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
     macdSignal: config.macdSignal,
     maSet: (config.maSet ?? DEFAULT_CONFIG.maSet ?? []).map((slot) => ({ ...slot })),
     adxPeriod: config.adxPeriod ?? 14,
+    adxKeyLevel: config.adxKeyLevel ?? 23,
     squeezeBBLength: config.squeezeBBLength ?? 20,
     squeezeKeltnerLength: config.squeezeKeltnerLength ?? 20,
     styleColor: style?.color ?? "#64b5f6",
@@ -125,7 +126,7 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
       }));
       onSave({ maSet: sanitized }, stylePatch);
     } else if (target === "adx") {
-      onSave({ adxPeriod: clamp(draft.adxPeriod, 2, 200) }, stylePatch);
+      onSave({ adxPeriod: clamp(draft.adxPeriod, 2, 200), adxKeyLevel: clamp(draft.adxKeyLevel, 1, 100) }, stylePatch);
     } else if (target === "squeeze") {
       onSave({ squeezeBBLength: clamp(draft.squeezeBBLength, 2, 200), squeezeKeltnerLength: clamp(draft.squeezeKeltnerLength, 2, 200) }, stylePatch);
     } else if (target === "volume") onSave({}, stylePatch);
@@ -197,11 +198,18 @@ function SettingsForm({ target, config, style, onSave, onReset }: FormProps) {
             </div>
           )}
           {target === "adx" && (
-            <Field
-              label="Período ADX"
-              value={draft.adxPeriod}
-              onChange={(n) => setDraft((d) => ({ ...d, adxPeriod: n }))}
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="Período ADX"
+                value={draft.adxPeriod}
+                onChange={(n) => setDraft((d) => ({ ...d, adxPeriod: n }))}
+              />
+              <Field
+                label="Key Level"
+                value={draft.adxKeyLevel}
+                onChange={(n) => setDraft((d) => ({ ...d, adxKeyLevel: n }))}
+              />
+            </div>
           )}
           {target === "squeeze" && (
             <div className="grid grid-cols-2 gap-2">
