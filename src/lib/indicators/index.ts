@@ -25,6 +25,7 @@ export interface SqueezePoint {
   zero: number;
   squeezeOn: boolean;
   squeezeOff: boolean;
+  noSqz: boolean;
 }
 
 export interface BollingerPoint {
@@ -285,13 +286,14 @@ export function squeezeMomentum(
 ): SqueezePoint[] {
   if (candles.length < Math.max(bbLength, keltnerLength)) return [];
   const out: SqueezePoint[] = [];
-  const closes = candles.map((c) => c.close);
+  const source = candles.map((c) => c.close);
   const highs = candles.map((c) => c.high);
   const lows = candles.map((c) => c.low);
 
-  const basis = sma(candles, bbLength);
+  const basis = sma(candles, bbLength).map((p) => p.value);
   const dev = stdev(candles, bbLength).map((p) => p.value * mult);
   const maKC = sma(candles, keltnerLength).map((p) => p.value);
+
   const rangeSeries = candles.map((c, i) => {
     if (i === 0) return c.high - c.low;
     if (!useTrueRange) return c.high - c.low;
@@ -301,34 +303,87 @@ export function squeezeMomentum(
       Math.abs(c.low - candles[i - 1].close),
     );
   });
-  const rangeSma = sma(rangeSeries.map((value, i) => ({ ...candles[i], close: value })), keltnerLength).map((p) => p.value);
+  const rangeSma = sma(
+    rangeSeries.map((value, i) => ({ ...candles[i], close: value })),
+    keltnerLength,
+  ).map((p) => p.value);
 
-  const start = Math.max(bbLength, keltnerLength) - 1;
+  const highest = (arr: number[], endIndex: number, length: number) => {
+    let maxVal = -Infinity;
+    const start = endIndex - length + 1;
+    for (let i = start; i <= endIndex; i++) {
+      if (arr[i] > maxVal) maxVal = arr[i];
+    }
+    return maxVal;
+  };
+
+  const lowest = (arr: number[], endIndex: number, length: number) => {
+    let minVal = Infinity;
+    const start = endIndex - length + 1;
+    for (let i = start; i <= endIndex; i++) {
+      if (arr[i] < minVal) minVal = arr[i];
+    }
+    return minVal;
+  };
+
+  const linregAt = (arr: number[], endIndex: number, length: number) => {
+    const start = endIndex - length + 1;
+    const meanX = (length - 1) / 2;
+    let meanY = 0;
+    for (let i = 0; i < length; i++) {
+      meanY += arr[start + i];
+    }
+    meanY /= length;
+
+    let num = 0;
+    let den = 0;
+    for (let i = 0; i < length; i++) {
+      const x = i - meanX;
+      const y = arr[start + i] - meanY;
+      num += x * y;
+      den += x * x;
+    }
+    const slope = den === 0 ? 0 : num / den;
+    const intercept = meanY - slope * meanX;
+    return intercept + slope * (length - 1);
+  };
+
+  const start = Math.max(bbLength, keltnerLength * 2 - 1) - 1;
   for (let i = start; i < candles.length; i++) {
     const basisIdx = i - (bbLength - 1);
     const kcIdx = i - (keltnerLength - 1);
-    const bbBasis = basis[basisIdx]?.value ?? closes[i];
+    const bbBasis = basis[basisIdx] ?? source[i];
     const bbDev = dev[basisIdx] ?? 0;
     const upperBB = bbBasis + bbDev;
     const lowerBB = bbBasis - bbDev;
-    const ma = maKC[kcIdx] ?? closes[i];
+    const ma = maKC[kcIdx] ?? source[i];
     const rng = rangeSma[kcIdx] ?? 0;
     const upperKC = ma + rng * multKC;
     const lowerKC = ma - rng * multKC;
+
     const squeezeOn = lowerBB > lowerKC && upperBB < upperKC;
     const squeezeOff = lowerBB < lowerKC && upperBB > upperKC;
-    const highest = Math.max(...highs.slice(i - keltnerLength + 1, i + 1));
-    const lowest = Math.min(...lows.slice(i - keltnerLength + 1, i + 1));
-    const mean = (highest + lowest + ma) / 3;
-    // Normalize momentum by price so the oscillator is readable across symbols.
-    const base = Math.max(Math.abs(closes[i]), 1e-9);
-    const value = ((closes[i] - mean) / base) * 100;
+    const noSqz = !squeezeOn && !squeezeOff;
+
+    const transformed: number[] = [];
+    for (let j = i - keltnerLength + 1; j <= i; j++) {
+      const highJ = highest(highs, j, keltnerLength);
+      const lowJ = lowest(lows, j, keltnerLength);
+      const kcJ = j - (keltnerLength - 1);
+      const maJ = maKC[kcJ] ?? source[j];
+      const avgHLSmaJ = ((highJ + lowJ) / 2 + maJ) / 2;
+      transformed.push(source[j] - avgHLSmaJ);
+    }
+
+    const value = linregAt(transformed, transformed.length - 1, keltnerLength);
+
     out.push({
       time: candles[i].time,
       value,
       zero: 0,
       squeezeOn,
       squeezeOff,
+      noSqz,
     });
   }
   return out;

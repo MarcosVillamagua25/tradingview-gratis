@@ -5,7 +5,6 @@ import {
   createChart,
   CandlestickSeries,
   LineSeries,
-  AreaSeries,
   HistogramSeries,
   CrosshairMode,
   type IChartApi,
@@ -147,8 +146,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const plusDIRef = useRef<ISeriesApi<"Line"> | null>(null);
   const minusDIRef = useRef<ISeriesApi<"Line"> | null>(null);
   const adxKeyLevelRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const squeezeAreaRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const squeezeSignalRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const squeezeHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const squeezeZeroRef = useRef<ISeriesApi<"Line"> | null>(null);
   const adxPaneIndexRef = useRef<number | null>(null);
   const squeezePaneIndexRef = useRef<number | null>(null);
@@ -214,7 +212,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (s === rsiRef.current || s === rsi30Ref.current || s === rsi70Ref.current) return "rsi";
     if (s === macdRef.current || s === macdSignalRef.current || s === macdHistRef.current) return "macd";
     if (s === adxRef.current || s === plusDIRef.current || s === minusDIRef.current) return "adx";
-    if (s === squeezeAreaRef.current || s === squeezeSignalRef.current || s === squeezeZeroRef.current) return "squeeze";
+    if (s === squeezeHistRef.current || s === squeezeZeroRef.current) return "squeeze";
     if (s === volumeSeriesRef.current) return "volume";
     return null;
   }
@@ -455,8 +453,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       plusDIRef.current = null;
       minusDIRef.current = null;
       adxKeyLevelRef.current = null;
-      squeezeAreaRef.current = null;
-      squeezeSignalRef.current = null;
+      squeezeHistRef.current = null;
       squeezeZeroRef.current = null;
     };
   }, []);
@@ -631,8 +628,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: v("adx") });
     if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: v("adx") });
     if (adxKeyLevelRef.current) adxKeyLevelRef.current.applyOptions({ visible: v("adx") });
-    if (squeezeAreaRef.current) squeezeAreaRef.current.applyOptions({ visible: v("squeeze") });
-    if (squeezeSignalRef.current) squeezeSignalRef.current.applyOptions({ visible: v("squeeze") });
+    if (squeezeHistRef.current) squeezeHistRef.current.applyOptions({ visible: v("squeeze") });
     if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: v("squeeze") });
     if (volumeSeriesRef.current) volumeSeriesRef.current.applyOptions({ visible: v("volume") });
   }, [indicators, hidden]);
@@ -682,8 +678,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
       if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
       if (adxKeyLevelRef.current) chartRef.current.removeSeries(adxKeyLevelRef.current);
-      if (squeezeAreaRef.current) chartRef.current.removeSeries(squeezeAreaRef.current);
-      if (squeezeSignalRef.current) chartRef.current.removeSeries(squeezeSignalRef.current);
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
       if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
 
       adxRef.current = chartRef.current.addSeries(LineSeries, {
@@ -720,28 +715,15 @@ export function PriceChart({ symbol, timeframe }: Props) {
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
-      squeezeAreaRef.current = chartRef.current.addSeries(AreaSeries, {
-        lineColor: "#1f66ff",
-        lineWidth: 2,
-        topColor: "rgba(54, 120, 255, 0.45)",
-        bottomColor: "rgba(54, 120, 255, 0.08)",
+      squeezeHistRef.current = chartRef.current.addSeries(HistogramSeries, {
+        color: "#26a69a",
         priceScaleId: "right",
-        crosshairMarkerVisible: false,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      }, paneIndex);
-      squeezeSignalRef.current = chartRef.current.addSeries(LineSeries, {
-        color: "rgba(230,230,230,0.85)",
-        lineWidth: 2,
-        priceScaleId: "right",
-        crosshairMarkerVisible: false,
         priceLineVisible: false,
         lastValueVisible: false,
       }, paneIndex);
       squeezeZeroRef.current = chartRef.current.addSeries(LineSeries, {
-        color: "rgba(255,255,255,0.5)",
-        lineWidth: 1,
-        lineStyle: 2,
+        color: "#3b82f6",
+        lineWidth: 2,
         priceScaleId: "right",
         crosshairMarkerVisible: false,
         priceLineVisible: false,
@@ -762,15 +744,13 @@ export function PriceChart({ symbol, timeframe }: Props) {
       if (plusDIRef.current) chartRef.current.removeSeries(plusDIRef.current);
       if (minusDIRef.current) chartRef.current.removeSeries(minusDIRef.current);
       if (adxKeyLevelRef.current) chartRef.current.removeSeries(adxKeyLevelRef.current);
-      if (squeezeAreaRef.current) chartRef.current.removeSeries(squeezeAreaRef.current);
-      if (squeezeSignalRef.current) chartRef.current.removeSeries(squeezeSignalRef.current);
+      if (squeezeHistRef.current) chartRef.current.removeSeries(squeezeHistRef.current);
       if (squeezeZeroRef.current) chartRef.current.removeSeries(squeezeZeroRef.current);
       adxRef.current = null;
       plusDIRef.current = null;
       minusDIRef.current = null;
       adxKeyLevelRef.current = null;
-      squeezeAreaRef.current = null;
-      squeezeSignalRef.current = null;
+      squeezeHistRef.current = null;
       squeezeZeroRef.current = null;
       adxPaneIndexRef.current = null;
       squeezePaneIndexRef.current = null;
@@ -779,8 +759,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (adxRef.current) adxRef.current.applyOptions({ visible: indicators.adx });
     if (plusDIRef.current) plusDIRef.current.applyOptions({ visible: indicators.adx });
     if (minusDIRef.current) minusDIRef.current.applyOptions({ visible: indicators.adx });
-    if (squeezeAreaRef.current) squeezeAreaRef.current.applyOptions({ visible: indicators.squeeze });
-    if (squeezeSignalRef.current) squeezeSignalRef.current.applyOptions({ visible: indicators.squeeze });
+    if (squeezeHistRef.current) squeezeHistRef.current.applyOptions({ visible: indicators.squeeze });
     if (squeezeZeroRef.current) squeezeZeroRef.current.applyOptions({ visible: indicators.squeeze });
 
     requestAnimationFrame(() => recomputePaneOffsets());
@@ -967,28 +946,31 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
   function updateSqueeze(live = false) {
     const c = candlesRef.current;
-    if (c.length === 0 || !squeezeAreaRef.current || !squeezeSignalRef.current || !squeezeZeroRef.current) return;
+    if (c.length === 0 || !squeezeHistRef.current || !squeezeZeroRef.current) return;
     const cfg = configRef.current;
     const bbLen = cfg.squeezeBBLength ?? 20;
     const kLen = cfg.squeezeKeltnerLength ?? 20;
     const data = squeezeMomentum(c, bbLen, kLen);
-    const areaPoints = data.map((p) => ({
-      time: p.time as UTCTimestamp,
-      value: p.value,
-    }));
-
-    const signalPoints = data.map((p, i) => {
-      const start = Math.max(0, i - 4);
-      const slice = data.slice(start, i + 1);
-      const avg = slice.reduce((sum, x) => sum + x.value, 0) / slice.length;
-      return { time: p.time as UTCTimestamp, value: avg };
+    const histPoints = data.map((p, i) => {
+      const prev = i > 0 ? data[i - 1].value : p.value;
+      const color = p.value > 0
+        ? (p.value > prev ? "#00e676" : "#26a69a")
+        : (p.value < prev ? "#ef5350" : "#8e244d");
+      return {
+        time: p.time as UTCTimestamp,
+        value: p.value,
+        color,
+      };
     });
 
-    const zeroPoints = data.map((p) => ({ time: p.time as UTCTimestamp, value: 0 }));
-    if (live && areaPoints.length > 0) squeezeAreaRef.current.update(areaPoints[areaPoints.length - 1]);
-    else squeezeAreaRef.current.setData(areaPoints);
-    if (live && signalPoints.length > 0) squeezeSignalRef.current.update(signalPoints[signalPoints.length - 1]);
-    else squeezeSignalRef.current.setData(signalPoints);
+    const zeroPoints = data.map((p) => ({
+      time: p.time as UTCTimestamp,
+      value: 0,
+      color: p.noSqz ? "#3b82f6" : p.squeezeOn ? "#111111" : "#9ca3af",
+    }));
+
+    if (live && histPoints.length > 0) squeezeHistRef.current.update(histPoints[histPoints.length - 1]);
+    else squeezeHistRef.current.setData(histPoints);
     if (live && zeroPoints.length > 0) squeezeZeroRef.current.update(zeroPoints[zeroPoints.length - 1]);
     else squeezeZeroRef.current.setData(zeroPoints);
     const last = data.at(-1);
